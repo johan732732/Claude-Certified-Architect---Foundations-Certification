@@ -1,0 +1,10 @@
+{
+  "name": "CCAR-F · Estudio Architect Foundations",
+  "short_name": "CCAR-F",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#f3efe6",
+  "theme_color": "#f3efe6",
+  "lang": "es"
+}

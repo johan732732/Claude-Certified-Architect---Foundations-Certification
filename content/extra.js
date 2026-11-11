@@ -1,0 +1,90 @@
+window.CCARF = window.CCARF || {};
+
+// The exam draws 4 of these 6 scenarios. Briefs are paraphrased study summaries, not the exam text.
+CCARF.scenarios = [
+  {
+    id: "support",
+    title: "Agente de resolución de soporte",
+    domains: ["d1", "d2", "d5"],
+    brief: "Un agente del Agent SDK atiende clientes con tools de backend expuestas por MCP: consultar pedidos, verificar cliente, procesar devoluciones y escalar. Debe resolver en el primer contacto y escalar cuando no tiene política o evidencia suficiente.",
+    decisions: [
+      { lesson: "1.4", q: "Un reembolso sin identidad verificada puede ejecutarse por error de prompt. ¿Cómo lo impides?", a: "Con un prerrequisito programático: process_refund se bloquea hasta que get_customer devuelva un cliente verificado." },
+      { lesson: "1.5", q: "¿Quién impide un reembolso por encima del límite?", a: "Un hook que intercepta la llamada saliente, la bloquea y redirige a escalación. El prompt no es garantía." },
+      { lesson: "2.2", q: "La consulta de un pedido falló por timeout. ¿Qué responde la tool?", a: "Un error estructurado: isError, categoría transient, isRetryable true y una descripción accionable. No una lista vacía." },
+      { lesson: "2.4", q: "El sistema de pedidos es interno y tiene reglas propias. ¿Cómo se integra?", a: "Con un servidor MCP custom, configurado en .mcp.json del proyecto, con el token referenciado como variable de entorno." },
+      { lesson: "5.2", q: "El cliente pide un humano explícitamente. ¿Qué hace el agente?", a: "Escala de inmediato, sin investigar antes." },
+      { lesson: "5.1", q: "Después de muchos turnos, el monto del reembolso se volvió aproximado en el resumen. ¿Cómo se evita?", a: "Con un bloque persistente de case facts con montos, fechas e IDs exactos, fuera del historial resumido." },
+    ],
+  },
+  {
+    id: "codegen",
+    title: "Generación de código con Claude Code",
+    domains: ["d3", "d5"],
+    brief: "Un equipo usa Claude Code dentro de un repositorio con convenciones de testing, comandos compartidos y varias áreas del código. Hay que decidir cómo configurar, cuándo planear y cómo manejar un repo grande.",
+    decisions: [
+      { lesson: "3.1", q: "Una convención del equipo está en el archivo personal de un desarrollador. ¿Qué haces?", a: "La muevo al CLAUDE.md del proyecto, versionado. Las preferencias personales se quedan en ~/.claude/CLAUDE.md." },
+      { lesson: "3.3", q: "Las reglas de testing aplican a archivos dispersos por el repo. ¿Cómo las configuro?", a: "Con una regla en .claude/rules/ con paths: \"**/*.test.tsx\", que carga solo cuando se editan esos archivos." },
+      { lesson: "3.2", q: "El equipo necesita un comando de revisión disponible para todos. ¿Dónde va?", a: "En .claude/commands/, versionado. Si además es un procedimiento largo, puede ser un skill con context: fork." },
+      { lesson: "3.4", q: "Hay que migrar varios servicios con dependencias poco claras. ¿Plan mode o ejecución directa?", a: "Plan mode para explorar y diseñar; después ejecución de lo planeado." },
+      { lesson: "3.5", q: "El formato de salida es inconsistente cuando solo se describe en prosa. ¿Qué agrego?", a: "2-3 ejemplos concretos de entrada y salida." },
+      { lesson: "5.4", q: "El repo es enorme y la sesión empieza a dar respuestas genéricas. ¿Qué hago?", a: "Uso scratchpad o un subagente de exploración que devuelve un resumen, para no llenar el contexto principal." },
+    ],
+  },
+  {
+    id: "research",
+    title: "Sistema de investigación multiagente",
+    domains: ["d1", "d2", "d5"],
+    brief: "Un coordinador reparte búsqueda, análisis, verificación y síntesis entre subagentes. Los subtemas no se conocen al empezar, y las fuentes pueden fallar o contradecirse.",
+    decisions: [
+      { lesson: "1.2", q: "Los subtemas aparecen al leer las fuentes. ¿Qué patrón?", a: "Orchestrator-workers en hub-and-spoke: el coordinador descubre y reparte, los subagentes no se hablan entre sí." },
+      { lesson: "1.3", q: "El agente de síntesis necesita atribuir cada claim a su fuente. ¿Cómo le paso los hallazgos?", a: "Como claims con metadato de fuente (URL o documento, localizador), dentro de su prompt. Tareas independientes se lanzan en la misma respuesta." },
+      { lesson: "1.6", q: "El informe omite una región entera del tema. ¿Dónde está el fallo?", a: "En la descomposición del coordinador, que fue demasiado estrecha. Se amplía y se revisa la cobertura." },
+      { lesson: "2.3", q: "¿Qué tools ve el agente de síntesis?", a: "Solo las de su rol, como una verificación acotada. No la búsqueda web general ni las tools de otros roles." },
+      { lesson: "5.1", q: "Una búsqueda devuelve páginas enteras que saturan el contexto del coordinador. ¿Qué hago?", a: "Recorto los resultados a lo relevante antes de agregarlos, y dejo los hallazgos clave al inicio." },
+      { lesson: "5.3", q: "Una fuente no respondió. ¿Qué pasa con el informe?", a: "El subagente devuelve el fallo con contexto, y el informe anota qué subtemas quedaron sin cobertura." },
+      { lesson: "5.6", q: "Dos fuentes creíbles dan cifras distintas para la misma métrica. ¿Qué hago?", a: "Anoto ambas con su fuente y fecha, y dejo que el coordinador reconcilie. No elijo una en silencio." },
+    ],
+  },
+  {
+    id: "productivity",
+    title: "Productividad del desarrollador",
+    domains: ["d1", "d2", "d3"],
+    brief: "Un agente con built-in tools y MCP ayuda con trabajo repetido en el repo: buscar código, editar archivos, consultar el tracker. Debe tener permisos acotados y manejar sesiones que se interrumpen.",
+    decisions: [
+      { lesson: "2.5", q: "Necesito leer archivos del repo. ¿Uso MCP?", a: "No. Read, Grep y Glob cubren el repo. MCP es para sistemas externos como el tracker." },
+      { lesson: "2.4", q: "Hay que conectar el tracker de tareas del equipo. ¿Qué servidor y dónde lo configuro?", a: "Un servidor de comunidad si existe, en .mcp.json del proyecto, con la credencial en variable de entorno." },
+      { lesson: "1.5", q: "El agente no debe borrar archivos fuera de una carpeta. ¿Cómo lo garantizo?", a: "Con un hook PreToolUse que bloquea la llamada. No con una frase en el prompt." },
+      { lesson: "3.1", q: "¿Qué memoria carga el agente?", a: "La del proyecto para el equipo, la personal para notas propias. Puedo verificarlo con /memory." },
+      { lesson: "1.7", q: "A mitad de una tarea llega un cambio en el código de la rama. ¿Reanudo la sesión?", a: "No a ciegas. Informo qué archivos cambiaron para un re-análisis dirigido, o resumo en una sesión nueva." },
+      { lesson: "1.1", q: "¿Cómo sabe el agente que terminó su tarea?", a: "Por end_turn. El tope de iteraciones solo corta un bucle desbocado." },
+    ],
+  },
+  {
+    id: "ci",
+    title: "Claude Code en integración continua",
+    domains: ["d3", "d4"],
+    brief: "Un pipeline ejecuta Claude Code en cada pull request para comentar cambios y proponer tests. No hay una persona aprobando cada herramienta, y los comentarios deben ser precisos para no generar ruido.",
+    decisions: [
+      { lesson: "3.6", q: "El job se queda esperando input. ¿Qué cambio?", a: "Ejecutar con -p (print mode), que no espera input." },
+      { lesson: "3.6", q: "Los hallazgos deben publicarse como comentarios en línea. ¿Qué formato?", a: "Salida JSON conforme a un schema: --output-format json con --json-schema." },
+      { lesson: "4.1", q: "El bot genera demasiados comentarios de estilo que no importan. ¿Qué ajusto?", a: "Criterios categóricos: qué reportar y qué omitir, con ejemplos de severidad." },
+      { lesson: "4.6", q: "El PR tiene decenas de archivos y el juicio es inconsistente. ¿Qué arquitectura?", a: "Un pase local por archivo y un pase de integración. No un solo prompt con todo el diff." },
+      { lesson: "4.6", q: "¿Quién revisa el código que generó el agente?", a: "Una instancia independiente, sin el razonamiento de la sesión que lo escribió." },
+      { lesson: "4.5", q: "Un check bloqueante del PR puede usar Message Batches?", a: "No. Batch no tiene SLA y el desarrollador espera el resultado. Batch sirve para el reporte nocturno." },
+    ],
+  },
+  {
+    id: "extract",
+    title: "Extracción de datos estructurados",
+    domains: ["d4", "d5"],
+    brief: "Documentos heterogéneos deben convertirse en registros que un programa acepta. Hay validación, reintentos y lotes, y no se debe aceptar un lote con huecos sin marcarlo.",
+    decisions: [
+      { lesson: "4.3", q: "¿Cómo garantizo una salida con forma correcta?", a: "Tool use con JSON schema. Un enum para conjuntos cerrados, \"other\" con detalle para lo inesperado." },
+      { lesson: "4.4", q: "El total extraído no cuadra con las líneas. ¿Qué hago?", a: "Comparo calculated_total con stated_total en código, marco conflict_detected y reintento con el error concreto. Si persiste, cuarentena." },
+      { lesson: "4.2", q: "Dos proveedores usan formatos distintos de fecha. ¿Cómo lo enseño al modelo?", a: "Con pocos ejemplos ambiguos de cada formato, en el mismo formato de salida." },
+      { lesson: "4.5", q: "Son decenas de miles de documentos que pueden esperar a la noche. ¿Qué API?", a: "Message Batches, con custom_id por documento. Un fallo individual no invalida el lote." },
+      { lesson: "4.1", q: "Un campo aparece vacío en el documento original. ¿Qué devuelvo?", a: "null o unclear, no un valor inventado." },
+      { lesson: "5.5", q: "Antes de reducir la revisión humana, ¿qué mido?", a: "La precisión por tipo de documento y por campo, con muestreo estratificado, no solo el promedio global." },
+    ],
+  },
+];

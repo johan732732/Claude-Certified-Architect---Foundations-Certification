@@ -1,0 +1,12 @@
+{
+  "name": "ccar-f-estudio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Estudio local para Claude Certified Architect - Foundations (CCAR-F).",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
