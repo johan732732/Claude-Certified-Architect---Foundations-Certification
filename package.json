@@ -4,7 +4,8 @@
   "private": true,
   "description": "Estudio local para Claude Certified Architect - Foundations (CCAR-F).",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node scripts/check-i18n.js"
   },
   "engines": {
     "node": ">=18"

@@ -23,6 +23,6 @@ El progreso (lecciones, tarjetas, simulacros y la lista de preparación) queda e
 - Los 6 escenarios que la guía publica, como decisiones y no como respuestas memorizadas
 - Distinciones, glosario, temas que no entran, y la logística de Pearson VUE
 
-Las preguntas de práctica están en inglés. Las explicaciones están en español.
+Las preguntas de práctica están en inglés, como en el examen. La interfaz, las lecciones y las explicaciones se leen en español o en inglés con el selector ES / EN.
 
 Si el PDF y el producto de hoy no dicen lo mismo, en el examen se responde como el PDF.

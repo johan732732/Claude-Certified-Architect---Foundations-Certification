@@ -81,6 +81,14 @@ a { color: var(--accent-ink); }
 }
 .nav a:hover, .chip:hover { background: var(--bg-deep); }
 .nav a.active:hover { background: var(--ink); }
+.top-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+.lang-switch { display: flex; gap: 4px; }
+.lang-switch .chip { min-width: 40px; text-align: center; }
 .progress-pill {
   font-size: 13px;
   color: var(--muted);
@@ -714,7 +722,8 @@ th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: 
     padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
   }
   .brand { min-width: 0; }
-  .progress-pill { margin-left: auto; font-size: 12px; text-align: right; max-width: 52%; white-space: normal; }
+  .top-tools { margin-left: auto; max-width: 70%; }
+  .progress-pill { font-size: 12px; text-align: right; white-space: normal; }
   .nav {
     order: 3;
     flex-basis: 100%;
