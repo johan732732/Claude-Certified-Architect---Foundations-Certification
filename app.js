@@ -61,7 +61,7 @@
 
   const state = loadState();
   let live = loadLive();
-  let ui = { q: "", deck: "due", practiceDomain: "all", practiceCount: "10", practiceMode: "study" };
+  let ui = { q: "", deck: "due", practiceDomain: "all", practiceCount: "10", practiceMode: "study", accountOpen: false };
   let cardBack = false;
   let cardQueue = [];
   let pair = null;
@@ -78,8 +78,386 @@
     }
   }
 
+  const BASE_KEY = "ccarf-sync-base-v1";
+  const OWNER_KEY = "ccarf-sync-owner-v1";
+  const SUPABASE_SRC = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/dist/umd/supabase.js";
+  let syncClient = null;
+  let syncSession = null;
+  let syncReady = null;
+  let pulling = false;
+  let pushQueued = false;
+  let pushTimer = 0;
+  let pullChain = Promise.resolve();
+  let account = { phase: "out", email: "", name: "", avatar: "", noteKey: "" };
+
+  function profileOf(user) {
+    const meta = (user && user.user_metadata) || {};
+    return {
+      email: (user && user.email) || "",
+      name: String(meta.full_name || meta.name || "").trim(),
+      avatar: String(meta.avatar_url || meta.picture || "").trim(),
+    };
+  }
+
+  function signedInAccount(user) {
+    const profile = profileOf(user);
+    return { phase: "in", email: profile.email, name: profile.name, avatar: profile.avatar, noteKey: "" };
+  }
+
+  function blankAccount() {
+    return { phase: "out", email: "", name: "", avatar: "", noteKey: "" };
+  }
+
   function saveState() {
     localStorage.setItem(STORE, JSON.stringify(state));
+    schedulePush();
+  }
+
+  function syncConfig() {
+    const cfg = window.CCARF_SYNC || {};
+    const url = String(cfg.url || "").trim();
+    const anonKey = String(cfg.anonKey || "").trim();
+    if (!/^https:\/\/.+\.supabase\.co\/?$/.test(url) || anonKey.length < 20) return null;
+    return { url: url.replace(/\/$/, ""), anonKey: anonKey };
+  }
+
+  function emptyProgress() {
+    return { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {} };
+  }
+
+  function snapshot() {
+    return {
+      lessons: state.lessons || {},
+      cards: state.cards || {},
+      checklist: state.checklist || {},
+      history: state.history || [],
+      misses: state.misses || {},
+      notes: state.notes || {},
+    };
+  }
+
+  function stable(value) {
+    if (Array.isArray(value)) return "[" + value.map(stable).join(",") + "]";
+    if (value && typeof value === "object") {
+      return "{" + Object.keys(value).sort().map((key) => JSON.stringify(key) + ":" + stable(value[key])).join(",") + "}";
+    }
+    return JSON.stringify(value);
+  }
+
+  function sameValue(left, right) {
+    return stable(left) === stable(right);
+  }
+
+  function baseStorageKey() {
+    const id = syncSession && syncSession.user && syncSession.user.id;
+    return id ? BASE_KEY + ":" + id : BASE_KEY;
+  }
+
+  function loadBase() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(baseStorageKey()) || "null");
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch (error) {
+      return null;
+    }
+    return null;
+  }
+
+  function rememberBase(data) {
+    localStorage.setItem(baseStorageKey(), JSON.stringify(data));
+  }
+
+  function clearSyncMeta() {
+    const keys = [];
+    for (let index = 0; index < localStorage.length; index += 1) keys.push(localStorage.key(index));
+    keys.forEach((key) => {
+      if (key && key.indexOf(BASE_KEY) === 0) localStorage.removeItem(key);
+    });
+    localStorage.removeItem(OWNER_KEY);
+  }
+
+  function replaceProgress(data) {
+    const next = data || emptyProgress();
+    state.lessons = next.lessons || {};
+    state.cards = next.cards || {};
+    state.checklist = next.checklist || {};
+    state.history = next.history || [];
+    state.misses = next.misses || {};
+    state.notes = next.notes || {};
+    localStorage.setItem(STORE, JSON.stringify(state));
+  }
+
+  function preferValue(kind, local, remote) {
+    if (local === undefined) return remote;
+    if (remote === undefined) return local;
+    if (kind === "cards") {
+      const reps = (remote.reps || 0) - (local.reps || 0);
+      if (reps !== 0) return reps > 0 ? remote : local;
+      return String(remote.due || "") > String(local.due || "") ? remote : local;
+    }
+    if (kind === "misses") {
+      if ((remote.wrong || 0) !== (local.wrong || 0)) return (remote.wrong || 0) > (local.wrong || 0) ? remote : local;
+      return String(remote.last || "") > String(local.last || "") ? remote : local;
+    }
+    if (kind === "lessons") return String(local) <= String(remote) ? local : remote;
+    if (kind === "notes") return String(local).length >= String(remote).length ? local : remote;
+    return local;
+  }
+
+  function pickValue(kind, base, local, remote) {
+    const localSame = sameValue(local, base);
+    const remoteSame = sameValue(remote, base);
+    if (localSame) return remote;
+    if (remoteSame) return local;
+    return preferValue(kind, local, remote);
+  }
+
+  function pickMap(kind, baseMap, localMap, remoteMap) {
+    const base = baseMap || {};
+    const local = localMap || {};
+    const remote = remoteMap || {};
+    const keys = new Set(Object.keys(base).concat(Object.keys(local), Object.keys(remote)));
+    const out = {};
+    keys.forEach((key) => {
+      const hasBase = Object.prototype.hasOwnProperty.call(base, key);
+      const hasLocal = Object.prototype.hasOwnProperty.call(local, key);
+      const hasRemote = Object.prototype.hasOwnProperty.call(remote, key);
+      const chosen = pickValue(kind, hasBase ? base[key] : undefined, hasLocal ? local[key] : undefined, hasRemote ? remote[key] : undefined);
+      if (chosen !== undefined) out[key] = chosen;
+    });
+    return out;
+  }
+
+  function mergeHistory(local, remote) {
+    const rows = [];
+    const seen = new Set();
+    [remote || [], local || []].forEach((list) => {
+      list.forEach((row) => {
+        if (!row || !row.id || seen.has(row.id)) return;
+        seen.add(row.id);
+        rows.push(row);
+      });
+    });
+    rows.sort((left, right) => String(right.at || "").localeCompare(String(left.at || "")));
+    return rows.slice(0, 30);
+  }
+
+  function mergeProgress(base, local, remote) {
+    const prior = base || {};
+    return {
+      lessons: pickMap("lessons", prior.lessons, local.lessons, remote.lessons),
+      cards: pickMap("cards", prior.cards, local.cards, remote.cards),
+      checklist: pickMap("checklist", prior.checklist, local.checklist, remote.checklist),
+      misses: pickMap("misses", prior.misses, local.misses, remote.misses),
+      notes: pickMap("notes", prior.notes, local.notes, remote.notes),
+      history: mergeHistory(local.history, remote.history),
+    };
+  }
+
+  function loadSupabase() {
+    if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
+    return new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = SUPABASE_SRC;
+      script.onload = () => {
+        if (window.supabase && window.supabase.createClient) resolve(window.supabase);
+        else reject(new Error("supabase"));
+      };
+      script.onerror = () => reject(new Error("supabase"));
+      document.head.appendChild(script);
+    });
+  }
+
+  function ensureClient() {
+    const cfg = syncConfig();
+    if (!cfg) return Promise.resolve(null);
+    if (syncClient) return Promise.resolve(syncClient);
+    if (!syncReady) {
+      syncReady = loadSupabase().then((library) => {
+        syncClient = library.createClient(cfg.url, cfg.anonKey, {
+          auth: { flowType: "pkce", detectSessionInUrl: true, persistSession: true },
+        });
+        syncClient.auth.onAuthStateChange((event, next) => {
+          if (event === "SIGNED_OUT") {
+            syncSession = null;
+            ui.accountOpen = false;
+            account = blankAccount();
+            render();
+            return;
+          }
+          if ((event === "INITIAL_SESSION" || event === "SIGNED_IN") && next) {
+            syncSession = next;
+            ui.accountOpen = false;
+            account = signedInAccount(next.user);
+            render();
+            pullAndMerge();
+          }
+        });
+        return syncClient;
+      }).catch((error) => {
+        syncReady = null;
+        throw error;
+      });
+    }
+    return syncReady;
+  }
+
+  function schedulePush() {
+    if (!syncSession) return;
+    if (pulling) {
+      pushQueued = true;
+      return;
+    }
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      pushSoon();
+    }, 800);
+  }
+
+  async function pushNow() {
+    if (!syncClient || !syncSession) return;
+    const data = snapshot();
+    const { error } = await syncClient.from("progress").upsert({
+      user_id: syncSession.user.id,
+      data: data,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) throw error;
+    rememberBase(data);
+  }
+
+  async function pushSoon() {
+    try {
+      await pushNow();
+      if (account.noteKey === "accountError") {
+        account.noteKey = "";
+        account.phase = "in";
+        render();
+      }
+    } catch (error) {
+      account.phase = "error";
+      account.noteKey = "accountError";
+      render();
+    }
+  }
+
+  function pullAndMerge() {
+    pullChain = pullChain.then(doPull, doPull);
+    return pullChain;
+  }
+
+  async function doPull() {
+    if (!syncClient || !syncSession) return;
+    pulling = true;
+    clearTimeout(pushTimer);
+    try {
+      const { data, error } = await syncClient.from("progress").select("data").eq("user_id", syncSession.user.id).maybeSingle();
+      if (error) throw error;
+      const remote = data && data.data ? data.data : null;
+      const owner = localStorage.getItem(OWNER_KEY);
+      const mine = !owner || owner === syncSession.user.id;
+      let next;
+      if (!mine) next = remote || emptyProgress();
+      else if (!remote) next = snapshot();
+      else next = mergeProgress(loadBase(), snapshot(), remote);
+      const changedLocal = stable(next) !== stable(snapshot());
+      replaceProgress(next);
+      localStorage.setItem(OWNER_KEY, syncSession.user.id);
+      if (!remote || stable(next) !== stable(remote)) await pushNow();
+      else rememberBase(next);
+      account = signedInAccount(syncSession.user);
+      if (changedLocal) render();
+    } catch (error) {
+      account.phase = "error";
+      account.noteKey = "accountError";
+      render();
+    } finally {
+      pulling = false;
+      if (pushQueued) {
+        pushQueued = false;
+        schedulePush();
+      }
+    }
+  }
+
+  function signIn() {
+    const cfg = syncConfig();
+    if (!cfg) {
+      account = { phase: "error", email: "", name: "", avatar: "", noteKey: "accountNeedsConfig" };
+      render();
+      return;
+    }
+    account.phase = "working";
+    account.noteKey = "";
+    render();
+    ensureClient().then((client) => {
+      if (!client) throw new Error("config");
+      return client.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: location.origin + location.pathname,
+          queryParams: { prompt: "select_account" },
+        },
+      });
+    }).then((result) => {
+      if (result && result.error) throw result.error;
+    }).catch(() => {
+      account = { phase: "error", email: "", name: "", avatar: "", noteKey: "accountError" };
+      render();
+    });
+  }
+
+  function signOut() {
+    ui.accountOpen = false;
+    if (!syncClient) {
+      syncSession = null;
+      account = blankAccount();
+      render();
+      return;
+    }
+    account.phase = "working";
+    account.noteKey = "";
+    render();
+    syncClient.auth.signOut().catch(() => {
+      account.phase = "error";
+      account.noteKey = "accountError";
+      render();
+    });
+  }
+
+  function accountLetter() {
+    const source = (account.name || account.email || "?").trim();
+    return source.charAt(0).toLocaleUpperCase();
+  }
+
+  function accountMenuHtml() {
+    const name = account.name || account.email;
+    const mail = account.name && account.email ? '<span>' + raw(account.email) + "</span>" : "";
+    return '<div class="account-pop" role="menu"><p class="account-id"><b>' + raw(name) + "</b>" + mail + '</p><button type="button" role="menuitem" data-act="sign-out">' + raw(t("accountOut")) + "</button></div>";
+  }
+
+  function accountControl() {
+    const note = account.noteKey ? '<p class="account-note">' + tt(account.noteKey) + "</p>" : "";
+    if (!syncSession) {
+      const disabled = account.phase === "working" ? " disabled" : "";
+      const title = account.noteKey ? t(account.noteKey) : t("accountInTitle");
+      return '<button type="button" class="chip account" data-act="account"' + disabled + ' title="' + raw(title) + '">' + raw(t("accountIn")) + "</button>" + note;
+    }
+    const disabled = account.phase === "working" ? " disabled" : "";
+    const expanded = ui.accountOpen ? "true" : "false";
+    const photo = account.avatar
+      ? '<img src="' + raw(account.avatar) + '" alt="" referrerpolicy="no-referrer" onerror="this.remove()">'
+      : "";
+    const menu = ui.accountOpen ? accountMenuHtml() : "";
+    return '<div class="account-slot' + (ui.accountOpen ? " open" : "") + '"><button type="button" class="account-avatar" data-act="account-menu" aria-haspopup="menu" aria-expanded="' + expanded + '" aria-label="' + tt("accountMenu") + '" title="' + raw(account.name || account.email) + '"' + disabled + ">" + photo + "<span>" + raw(accountLetter()) + "</span></button>" + menu + "</div>" + note;
+  }
+
+  function bootSync() {
+    if (!syncConfig()) return;
+    ensureClient().catch(() => {
+      account = { phase: "error", email: "", name: "", avatar: "", noteKey: "accountError" };
+      render();
+    });
   }
 
   function loadLive() {
@@ -169,6 +547,20 @@
     return C.lessons.filter((item) => state.lessons[item.id]).length;
   }
 
+  function studyRing() {
+    const done = readCount();
+    const total = C.lessons.length || 1;
+    const pct = Math.round((100 * done) / total);
+    const radius = 14;
+    const length = 2 * Math.PI * radius;
+    const drawn = ((length * pct) / 100).toFixed(2);
+    const arc = pct
+      ? '<circle class="ring-value" cx="18" cy="18" r="' + radius + '" stroke-dasharray="' + drawn + " " + length.toFixed(2) + '"></circle>'
+      : "";
+    const label = t("studyRing", { pct: pct, done: done, total: total });
+    return '<span class="study-ring" role="img" aria-label="' + raw(label) + '" title="' + raw(label) + '"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="ring-track" cx="18" cy="18" r="' + radius + '"></circle>' + arc + '</svg><b>' + pct + '%</b></span>';
+  }
+
   function sectionPlan() {
     return [
       ["que", t("secWhatShort"), t("secWhat"), 2],
@@ -217,7 +609,8 @@
       formatStudy(pace.done) + '</b><span>' + tt("paceDone") + '</span></div><div><b>' +
       formatStudy(pace.left) + '</b><span>' + tt("paceLeft") + '</span></div><div><b>' +
       formatStudy(pace.total) + '</b><span>' + tt("paceTotal") + '</span></div></div><p class="small muted">' +
-      tt("paceNote", { done: readCount(), total: C.lessons.length }) + "</p></section>";
+      tt("paceNote", { done: readCount(), total: C.lessons.length }) + '</p><p class="account-hint">' +
+      tt("accountHint") + "</p></section>";
   }
 
   function stepTitle(index, section) {
@@ -492,9 +885,9 @@
     app.innerHTML =
       '<div class="shell"><header class="topbar"><a class="brand" href="#/inicio"><strong>CCAR-F</strong><span>Architect Foundations</span></a><nav class="nav">' +
       nav +
-      '</nav><div class="top-tools">' + langSwitch + '<div class="progress-pill">' +
+      '</nav><div class="top-tools"><div class="bar-meta">' + langSwitch + '<div class="study-mini">' + studyRing() + '<div class="progress-pill">' +
       tt("progressPill", { read: readCount(), due: dueCount() }) +
-      '</div></div></header><main class="page' +
+      '</div></div></div>' + accountControl() + '</div></header><main class="page' +
       (wide ? "" : " narrow") +
       '">' +
       body +
@@ -1530,9 +1923,39 @@
   }
 
   document.body.addEventListener("click", (event) => {
+    const insideAccount = event.target.closest(".account-slot");
+    if (ui.accountOpen && !insideAccount) {
+      ui.accountOpen = false;
+      const pop = document.querySelector(".account-pop");
+      const avatar = document.querySelector(".account-avatar");
+      if (pop) pop.remove();
+      if (avatar) avatar.setAttribute("aria-expanded", "false");
+    }
     const node = event.target.closest("[data-act]");
     if (!node) return;
     const act = node.dataset.act;
+    if (act === "account") {
+      signIn();
+      return;
+    }
+    if (act === "account-menu") {
+      if (account.phase === "working") return;
+      ui.accountOpen = !ui.accountOpen;
+      const slot = node.closest(".account-slot");
+      if (!slot) {
+        render();
+        return;
+      }
+      node.setAttribute("aria-expanded", ui.accountOpen ? "true" : "false");
+      const pop = slot.querySelector(".account-pop");
+      if (pop) pop.remove();
+      if (ui.accountOpen) slot.insertAdjacentHTML("beforeend", accountMenuHtml());
+      return;
+    }
+    if (act === "sign-out") {
+      signOut();
+      return;
+    }
     if (act === "lang") {
       const nextLang = node.dataset.lang;
       if (nextLang !== "es" && nextLang !== "en") return;
@@ -1792,11 +2215,28 @@
       return;
     }
     if (act === "reset") {
-        if (window.confirm(t("confirmReset"))) {
+      const cloud = Boolean(syncSession);
+      if (!window.confirm(t(cloud ? "confirmResetCloud" : "confirmReset"))) return;
+      const finishReset = () => {
         localStorage.removeItem(STORE);
+        clearSyncMeta();
         sessionStorage.removeItem(LIVE);
         location.reload();
+      };
+      if (!cloud) {
+        finishReset();
+        return;
       }
+      syncClient.from("progress").delete().eq("user_id", syncSession.user.id).then(({ error }) => {
+        if (error) {
+          account.phase = "error";
+          account.noteKey = "accountError";
+          render();
+          return;
+        }
+        finishReset();
+      });
+      return;
     }
   });
 
@@ -1832,6 +2272,14 @@
   });
 
   document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && ui.accountOpen) {
+      ui.accountOpen = false;
+      const pop = document.querySelector(".account-pop");
+      const avatar = document.querySelector(".account-avatar");
+      if (pop) pop.remove();
+      if (avatar) avatar.setAttribute("aria-expanded", "false");
+      return;
+    }
     if (event.target.matches("input, textarea, select")) return;
     const route = parseRoute();
     if (route.name === "tarjetas") {
@@ -1853,6 +2301,7 @@
   });
 
   window.addEventListener("hashchange", () => {
+    ui.accountOpen = false;
     if (parseRoute().name !== "tarjetas") cardQueue = [];
     window.scrollTo(0, 0);
     render();
@@ -1860,4 +2309,5 @@
 
   if (!location.hash) location.hash = "#/inicio";
   render();
+  bootSync();
 })();
