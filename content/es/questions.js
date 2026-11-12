@@ -1070,7 +1070,7 @@ CCARF.questions = [
     stem: "A newer report contradicts an older one on the same metric. Why is the publication date essential?",
     choices: [
       "It is not essential; dates are only decorative",
-      "It determines the font used when rendering the report",
+      "It only sets the sort order of the bibliography",
       "It lets you tell a temporal difference, where both values were correct when published, from a true contradiction",
       "It replaces the source URL in the citation",
     ],
@@ -1093,7 +1093,7 @@ CCARF.questions = [
   },
   {
     id: "d1-22", domain: "d1", lesson: "1.1", type: "multi", pick: 2,
-    stem: "Select TWO anti-patterns for deciding that an agentic loop is finished.",
+    stem: "Which TWO of the following are anti-patterns for deciding that an agent loop has finished?",
     choices: [
       "Parsing the assistant's natural language for a word like done",
       "Stopping when stop_reason is end_turn",
@@ -1119,20 +1119,20 @@ CCARF.questions = [
   },
   {
     id: "d2-16", domain: "d2", lesson: "2.2", type: "multi", pick: 2,
-    stem: "A tool call failed. Select TWO fields the guide expects on a structured error so the agent can decide what to do next.",
+    stem: "A tool call failed. Which TWO fields belong on the structured error so the agent can decide what to do next?",
     choices: [
       "errorCategory, such as transient, validation, or permission",
-      "The full stack trace of the model weights",
+      "The server's raw stack trace, with no category and no retry flag",
       "isRetryable",
       "A new random request id that replaces custom_id",
     ],
     answer: [0, 2],
     explain: "La guía pide errorCategory, isRetryable y una descripción legible. La traza interna del modelo no es un campo de tool, y custom_id pertenece a Message Batches.",
-    trap: "Un stack trace parece útil, pero no le dice al agente si debe reintentar o explicar una regla.",
+    trap: "Un stack trace parece el diagnóstico completo, pero no le dice al agente si debe reintentar, corregir la entrada o explicar una regla.",
   },
   {
     id: "d2-17", domain: "d2", lesson: "2.4", type: "multi", pick: 2,
-    stem: "Select TWO statements that match project-scoped MCP configuration in the exam guide.",
+    stem: "The whole team must share one MCP server, and the token must stay out of git. Which TWO statements are correct?",
     choices: [
       "Shared servers live in .mcp.json in the repository",
       "Secrets are written in plain text inside CLAUDE.md",
@@ -1145,7 +1145,7 @@ CCARF.questions = [
   },
   {
     id: "d3-16", domain: "d3", lesson: "3.2", type: "multi", pick: 2,
-    stem: "Select TWO skill frontmatter options and the effect the exam guide assigns to them.",
+    stem: "Which TWO statements correctly describe a skill frontmatter option?",
     choices: [
       "context: fork runs the skill in an isolated subagent",
       "allowed-tools restricts which tools the skill may use while it runs",
@@ -1171,7 +1171,7 @@ CCARF.questions = [
   },
   {
     id: "d4-18", domain: "d4", lesson: "4.5", type: "multi", pick: 2,
-    stem: "Select TWO reasons the exam guide gives for keeping a workflow off the Message Batches API.",
+    stem: "Which TWO situations are reasons to keep a workflow off the Message Batches API?",
     choices: [
       "Someone is waiting on the result before they can merge",
       "The job needs multi-turn tool calls inside one request",
@@ -1197,7 +1197,7 @@ CCARF.questions = [
   },
   {
     id: "d5-16", domain: "d5", lesson: "5.3", type: "multi", pick: 2,
-    stem: "A search subagent timed out. Select TWO anti-patterns for what it returns to the coordinator.",
+    stem: "A search subagent timed out. Which TWO of the following are anti-patterns in what it returns to the coordinator?",
     choices: [
       "An empty result presented as a successful search",
       "Stopping the entire research workflow on that one failure",

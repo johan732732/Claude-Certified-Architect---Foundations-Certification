@@ -924,32 +924,46 @@ th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: 
   .topbar {
     position: sticky;
     top: 0;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "brand lang account"
+      "study study study"
+      "nav nav nav";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: calc(8px + env(safe-area-inset-top)) 12px 6px;
   }
-  .brand { min-width: 0; }
-  .top-tools {
-    margin-left: auto;
-    flex: 1 1 auto;
-    flex-wrap: nowrap;
-    justify-content: flex-end;
-    gap: 16px;
-    min-width: 0;
-  }
-  .bar-meta { min-width: 0; gap: 6px 8px; }
-  .top-tools:has(.account-note) { flex-wrap: wrap; max-width: 100%; }
-  .progress-pill { font-size: 12px; text-align: right; white-space: normal; }
+  .brand { grid-area: brand; min-width: 0; }
+  .top-tools, .bar-meta { display: contents; }
+  .lang-switch { grid-area: lang; }
+  .study-mini { grid-area: study; justify-content: flex-start; min-width: 0; }
+  .study-ring { width: 32px; height: 32px; }
+  .top-tools > .chip.account,
+  .top-tools > .account-slot { grid-area: account; justify-self: end; margin-left: 6px; }
+  .account-note { grid-column: 1 / -1; grid-row: 4; text-align: right; }
+  .progress-pill { font-size: 12px; text-align: right; white-space: nowrap; }
   .nav {
-    order: 3;
-    flex-basis: 100%;
-    flex-wrap: wrap;
-    overflow: visible;
-    gap: 4px;
+    grid-area: nav;
+    order: 0;
+    flex-basis: auto;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 2px;
+    margin: 0 -12px;
+    padding: 0 12px 2px;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
   }
+  .nav.more-right { mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+  .nav.more-left { mask-image: linear-gradient(to right, transparent, #000 28px); }
+  .nav.more-left.more-right { mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+  .nav::-webkit-scrollbar { display: none; }
   .nav a {
     display: inline-flex;
     align-items: center;
+    flex: none;
     min-height: 40px;
     padding: 6px 12px;
     white-space: nowrap;
@@ -1004,6 +1018,6 @@ th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: 
   .timer { font-size: 22px; }
 }
 
-@media (max-width: 380px) {
+@media (max-width: 640px) {
   .brand span { display: none; }
 }
