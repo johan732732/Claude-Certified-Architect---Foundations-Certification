@@ -498,7 +498,7 @@
       (wide ? "" : " narrow") +
       '">' +
       body +
-      "</main></div>";
+      '<footer class="site-foot"><p>' + tt("repoNote") + '</p><p><a href="https://github.com/johan732732/Claude-Certified-Architect---Foundations-Certification"><svg class="gh-mark" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>' + tt("repoLink") + "</a></p></footer></main></div>";
     const box = app.querySelector(".search");
     if (box && ui.q) {
       box.focus();
@@ -644,6 +644,203 @@
       (diagram.caption ? '<p class="d-caption">' + esc(diagram.caption) + "</p>" : "") + "</figure>";
   }
 
+  function traceParts(trace) {
+    const good = (trace.good && trace.good.steps) || [];
+    const bad = (trace.bad && trace.bad.steps) || [];
+    const firstBack = good.findIndex((step) => step.dir === "back");
+    let cut = Number.isInteger(trace.askAfter) ? trace.askAfter : firstBack;
+    if (cut < 0) cut = 0;
+    if (cut >= good.length) cut = Math.max(good.length - 1, 0);
+    const opening = good.slice(0, cut + 1);
+    return {
+      opening: opening.length ? opening : good.slice(0, 1),
+      rest: good.slice(cut + 1),
+      bad: bad,
+    };
+  }
+
+  function flowState(lessonId) {
+    if (!ui.flow || ui.flow.lesson !== lessonId) {
+      ui.flow = { lesson: lessonId, seen: 1, branch: null, seenBranch: 0 };
+    }
+    return ui.flow;
+  }
+
+  function flowLines(value, max) {
+    const words = String(tx(value) || "").split(/\s+/).filter(Boolean);
+    const lines = [];
+    let line = "";
+    words.forEach((word) => {
+      const next = line ? line + " " + word : word;
+      if (next.length > max && line) {
+        lines.push(line);
+        line = word;
+      } else line = next;
+    });
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function flowClip(lines, maxLines) {
+    if (lines.length <= maxLines) return lines;
+    const cut = lines.slice(0, maxLines);
+    cut[maxLines - 1] = cut[maxLines - 1].replace(/[.…]+$/, "") + "…";
+    return cut;
+  }
+
+  function flowEdge(d, state, tone) {
+    const toneCls = tone && state !== "future" ? " e-" + tone : "";
+    const stateCls = state === "now" ? " e-now" : state === "past" ? " e-past" : "";
+    return '<path class="e' + stateCls + toneCls + '" d="' + d + '" marker-end="url(#fc-head)"/>';
+  }
+
+  function flowLabelKey(step) {
+    if (step.dir === "send" || step.dir === "back") return "trace_" + (step.via || "run") + "_" + step.dir;
+    return "trace_" + step.dir;
+  }
+
+  function flowNode(x, y, w, h, label, mode, dir) {
+    const rx = dir === "stop" || dir === "fail" ? h / 2 : 6;
+    const tight = String(label).length > 18 ? " n-tight" : "";
+    return '<g class="n n-' + mode + " n-" + dir + tight + '"><rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="' + rx + '"/>' +
+      '<text x="' + (x + w / 2) + '" y="' + (y + h / 2) + '" text-anchor="middle" dominant-baseline="central">' + raw(label) + "</text></g>";
+  }
+
+  function flowLabel(x, y, w, h, lines, branch, atAsk, selected) {
+    const act = atAsk ? ' data-act="flow-branch" data-branch="' + branch + '"' : "";
+    const text = lines.map((line, index) => {
+      const ty = y + 8 + index * 14 + 7;
+      return '<text x="' + (x + w / 2) + '" y="' + ty + '" text-anchor="middle" dominant-baseline="central">' + raw(line) + "</text>";
+    }).join("");
+    return '<g class="fc-label ' + branch + (selected ? " on" : "") + (atAsk ? "" : " off") + '"' + act + ">" +
+      '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="8"/>' + text + "</g>";
+  }
+
+  function renderTrace(trace, lessonId) {
+    const flow = flowState(lessonId);
+    const parts = traceParts(trace);
+    const openingLen = Math.max(parts.opening.length, 1);
+    if (flow.seen > openingLen + 1) flow.seen = openingLen + 1;
+    if (flow.seen < 1) flow.seen = 1;
+    const atAsk = flow.seen > openingLen;
+    const branchSteps = flow.branch === "bad" ? parts.bad : flow.branch === "good" ? parts.rest : [];
+    if (flow.branch && flow.seenBranch < 1) flow.seenBranch = 1;
+    if (flow.branch && flow.seenBranch > branchSteps.length) flow.seenBranch = Math.max(branchSteps.length, 1);
+
+    const NW = 188;
+    const NH = 40;
+    const DW = 210;
+    const DH = 118;
+    const GAP = 28;
+    const COL = 228;
+    const cx = 12 + COL + NW / 2;
+    const width = cx + COL + NW / 2 + 12;
+    const lx = cx - COL;
+    const rx = cx + COL;
+
+    const openingMode = (index) => {
+      if (index < flow.seen - 1) return "past";
+      if (index === flow.seen - 1 && !atAsk) return "now";
+      if (index < openingLen && atAsk) return "past";
+      return "future";
+    };
+    const stepMode = (branch, index) => {
+      if (flow.branch !== branch) return "future";
+      if (index < flow.seenBranch - 1) return "past";
+      if (index === flow.seenBranch - 1) return "now";
+      return "future";
+    };
+    const exitState = (branch) => {
+      if (!atAsk) return "future";
+      if (!flow.branch) return "now";
+      return flow.branch === branch ? "past" : "future";
+    };
+
+    let y = 14;
+    const shapes = [];
+    const edges = [];
+    parts.opening.forEach((step, index) => {
+      const mode = openingMode(index);
+      shapes.push(flowNode(cx - NW / 2, y, NW, NH, t(flowLabelKey(step)), mode, step.dir));
+      if (index) edges.push(flowEdge("M " + cx + " " + (y - GAP) + " L " + cx + " " + y, mode, ""));
+      y += NH + GAP;
+    });
+
+    const diamondTop = y;
+    const cy = diamondTop + DH / 2;
+    const diamondMode = !atAsk ? "future" : flow.branch ? "past" : "now";
+    if (parts.opening.length) {
+      edges.push(flowEdge("M " + cx + " " + (diamondTop - GAP) + " L " + cx + " " + diamondTop, diamondMode, ""));
+    }
+    const forkLines = flowClip(flowLines(trace.fork || t("flowAsk"), 16), 4);
+    const forkText = forkLines.map((line, index) => {
+      const start = cy - ((forkLines.length - 1) * 14) / 2;
+      return '<text x="' + cx + '" y="' + (start + index * 14) + '" text-anchor="middle" dominant-baseline="central">' + raw(line) + "</text>";
+    }).join("");
+    const diamond = '<g class="n n-' + diamondMode + ' n-ask"><polygon points="' +
+      [cx, diamondTop, cx + DW / 2, cy, cx, diamondTop + DH, cx - DW / 2, cy].join(",") +
+      '"/>' + forkText + "</g>";
+    y = diamondTop + DH + GAP;
+
+    const goodLines = flowClip(flowLines(atAsk ? (trace.goodWhen || t("traceGood")) : t("flowExit"), 22), 4);
+    const badLines = flowClip(flowLines(atAsk ? (trace.badWhen || t("traceBad")) : t("flowExit"), 22), 4);
+    const labelH = Math.max(40, 12 + Math.max(goodLines.length, badLines.length) * 14);
+    const labelY = y;
+    edges.push(flowEdge("M " + (cx - DW / 2) + " " + cy + " L " + lx + " " + cy + " L " + lx + " " + labelY, exitState("good"), "good"));
+    edges.push(flowEdge("M " + (cx + DW / 2) + " " + cy + " L " + rx + " " + cy + " L " + rx + " " + labelY, exitState("bad"), "bad"));
+    shapes.push(flowLabel(lx - NW / 2, labelY, NW, labelH, goodLines, "good", atAsk, flow.branch === "good"));
+    shapes.push(flowLabel(rx - NW / 2, labelY, NW, labelH, badLines, "bad", atAsk, flow.branch === "bad"));
+    y += labelH + GAP;
+
+    const drawBranch = (branch, steps, center) => {
+      steps.forEach((step, index) => {
+        const mode = stepMode(branch, index);
+        const top = y + index * (NH + GAP);
+        shapes.push(flowNode(center - NW / 2, top, NW, NH, t(flowLabelKey(step)), mode, step.dir));
+        const fromY = index ? top - GAP : labelY + labelH;
+        edges.push(flowEdge("M " + center + " " + fromY + " L " + center + " " + top, mode, branch));
+      });
+    };
+    drawBranch("good", parts.rest, lx);
+    drawBranch("bad", parts.bad, rx);
+    const rows = Math.max(parts.rest.length, parts.bad.length, 0);
+    const height = (rows ? y + rows * (NH + GAP) - GAP : y) + 16;
+
+    const ask = atAsk && !flow.branch;
+    let panel;
+    if (ask) {
+      panel = '<aside class="fc-console fc-ask"><b>' + tt("flowAsk") + "</b><p>" + esc(trace.fork || t("flowAsk")) + "</p>" +
+        '<div class="fc-picks"><button type="button" class="good" data-act="flow-branch" data-branch="good">' + esc(trace.goodWhen || t("traceGood")) + "</button>" +
+        '<button type="button" class="bad" data-act="flow-branch" data-branch="bad">' + esc(trace.badWhen || t("traceBad")) + "</button></div></aside>";
+    } else {
+      const step = flow.branch ? branchSteps[flow.seenBranch - 1] : parts.opening[flow.seen - 1];
+      panel = step
+        ? '<aside class="fc-console fc-' + esc(step.dir) + '"><b>' + tt(flowLabelKey(step)) + "</b>" +
+          (step.code ? "<pre>" + esc(step.code) + "</pre>" : "") +
+          (step.note ? "<p>" + esc(step.note) + "</p>" : "") + "</aside>"
+        : "";
+    }
+
+    const moreOpening = !flow.branch && flow.seen <= openingLen;
+    const moreBranch = Boolean(flow.branch && flow.seenBranch < branchSteps.length);
+    const canBack = flow.seen > 1 || Boolean(flow.branch);
+    const back = '<button type="button" class="btn secondary" data-act="flow-back"' + (canBack ? "" : " disabled") + ">" + tt("flowBack") + "</button>";
+    const next = moreOpening || moreBranch
+      ? '<button type="button" class="btn" data-act="flow-next">' + tt("flowNext") + "</button>"
+      : "";
+    const hint = ask
+      ? '<p class="small muted">' + tt("flowPick") + "</p>"
+      : (!moreOpening && !moreBranch && flow.branch ? '<p class="small muted">' + tt("flowDone") + "</p>" : "");
+    const shown = Math.min(flow.seen, openingLen) + (flow.branch ? Math.min(flow.seenBranch, branchSteps.length) : 0);
+    const total = openingLen + (flow.branch ? branchSteps.length : 0);
+    return '<figure class="trace"><figcaption>' + esc(trace.title) + '</figcaption><p class="t-help">' + tt("traceHelp") + '</p>' +
+      '<div class="fc-run"><svg class="fc-svg" viewBox="0 0 ' + width + " " + height + '" role="img">' +
+      '<defs><marker id="fc-head" markerUnits="userSpaceOnUse" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0 0 L10 5 L0 10 Z" fill="context-stroke"/></marker></defs>' +
+      edges.join("") + diamond + shapes.join("") + "</svg>" + panel + "</div>" +
+      '<div class="fc-controls">' + back + next + '<button type="button" class="btn secondary" data-act="flow-reset">' + tt("flowReset") + '</button><span class="small">' + tt("flowStep", { n: shown, total: total }) + "</span></div>" +
+      hint + "</figure>";
+  }
+
   function renderBlocks(blocks) {
     return blocks.map((block) => {
       if (block.type === "p") return "<p>" + esc(block.text) + "</p>";
@@ -695,6 +892,7 @@
     const diagram = C.diagrams && C.diagrams[item.id]
       ? stepTitle(2, sections[1]) + renderDiagram(C.diagrams[item.id])
       : "";
+    const trace = C.traces && C.traces[item.id] ? renderTrace(C.traces[item.id], item.id) : "";
     const steps = '<ol class="lesson-steps">' + sections.map((section) => "<li>" + raw(section.short) + " <b>" + tt("minutes", { n: section.minutes }) + "</b></li>").join("") + "</ol>";
     const pace = studyPace();
     const breakdown = sections.map((section) => raw(section.short) + " " + tt("minutes", { n: section.minutes })).join(" · ");
@@ -708,6 +906,7 @@
         exampleBox(item) +
         termsBox(item) +
         diagram +
+        trace +
         stepTitle(3, sections[2]) +
         renderBlocks(item.blocks.slice(split)) +
         '</div>' + renderBridge(item, sections[3]) + renderLessonCheck(item, sections[4]) +
@@ -1555,6 +1754,41 @@
     }
     if (act === "finish" && live) {
       if (window.confirm(t("confirmSubmit"))) finishLive();
+      return;
+    }
+    if (act === "flow-next" || act === "flow-back" || act === "flow-branch" || act === "flow-reset") {
+      const id = parseRoute().arg;
+      const trace = C.traces && C.traces[id];
+      if (!trace) return;
+      const parts = traceParts(trace);
+      const openingLen = Math.max(parts.opening.length, 1);
+      const flow = flowState(id);
+      if (act === "flow-reset") {
+        ui.flow = { lesson: id, seen: 1, branch: null, seenBranch: 0 };
+      } else if (act === "flow-back") {
+        if (flow.branch) {
+          if (flow.seenBranch > 1) flow.seenBranch -= 1;
+          else {
+            flow.branch = null;
+            flow.seenBranch = 0;
+          }
+        } else if (flow.seen > 1) {
+          flow.seen -= 1;
+        }
+      } else if (act === "flow-branch") {
+        if (flow.seen <= openingLen) return;
+        flow.branch = node.dataset.branch === "bad" ? "bad" : "good";
+        flow.seenBranch = 1;
+      } else if (flow.seen <= openingLen) {
+        flow.seen += 1;
+      } else if (flow.branch) {
+        const steps = flow.branch === "bad" ? parts.bad : parts.rest;
+        if (flow.seenBranch < steps.length) flow.seenBranch += 1;
+      }
+      render();
+      const narrow = window.matchMedia("(max-width: 860px)").matches;
+      const current = narrow ? app.querySelector(".fc-console") : app.querySelector(".fc-svg .n-now");
+      if (current) current.scrollIntoView({ block: narrow ? "nearest" : "center", behavior: "smooth" });
       return;
     }
     if (act === "reset") {
