@@ -22,13 +22,6 @@ CCARF.lessons = [
         ["end_turn", "El modelo terminó. Devuelves la respuesta."],
         ["max_tokens", "La salida viene truncada. No es éxito. No ejecutes un tool_use a medias."],
       ]},
-      { type: "h", text: "Cómo se arma el historial" },
-      { type: "ul", items: [
-        "Agregas el mensaje assistant con sus bloques tal como volvieron, incluidos los tool_use.",
-        "Después agregas un mensaje user con los tool_result, uno por cada tool_use_id.",
-        "Si falta o sobra un id, la siguiente llamada falla.",
-      ]},
-      { type: "code", label: "Esquema del bucle", code: "while True:\n    response = client.messages.create(\n        model=model, max_tokens=4096, tools=tools, messages=messages)\n    if response.stop_reason == \"end_turn\":\n        return response\n    if response.stop_reason != \"tool_use\":\n        raise TruncatedOrUnexpected(response.stop_reason)\n    messages.append({\"role\": \"assistant\", \"content\": response.content})\n    messages.append({\"role\": \"user\", \"content\": run_every_tool(response)})" },
       { type: "h", text: "Anti-patrones que el PDF nombra" },
       { type: "ul", items: [
         "Parsear lenguaje natural para decidir si el bucle termina.",

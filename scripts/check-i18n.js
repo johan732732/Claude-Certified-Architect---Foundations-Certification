@@ -37,6 +37,7 @@ const contentFiles = [
   "content/es/bridges.js",
   "content/es/examples.js",
   "content/es/traces.js",
+  "content/es/runs.js",
 ];
 const englishFiles = [
   "content/en/lessons.js",
@@ -65,7 +66,7 @@ if (!C || !C.lessons || !C.questions || !C.ui || !C.ui.es || !C.ui.en || !C.en) 
 }
 
 const dict = (C && C.en) || {};
-const skipFields = new Set(["code", "id", "domain", "lesson", "type", "answer", "pick", "minutes", "weight", "mock", "n", "kind", "layout", "tone", "stem", "choices"]);
+const skipFields = new Set(["code", "id", "domain", "lesson", "type", "answer", "pick", "minutes", "weight", "mock", "n", "kind", "layout", "tone", "stem", "choices", "watch", "focus"]);
 const spanish = /[áéíóúñÁÉÍÓÚÑ¿¡]|\b(el|la|los|las|que|para|con|una|del|cuando|está|también|porque|qué|cómo|dónde|esto|esta|este|hay|son|más|pero|sin|sobre|entre|desde|hasta|según|donde|como)\b/i;
 const seen = new Set();
 

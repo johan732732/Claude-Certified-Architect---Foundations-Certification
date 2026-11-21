@@ -1247,6 +1247,688 @@
       hint + "</figure>";
   }
 
+  function holdView(draw, after) {
+    const x = window.scrollX;
+    const y = window.scrollY;
+    const code = app.querySelector(".dbg-code");
+    const codeTop = code ? code.scrollTop : 0;
+    const codeLeft = code ? code.scrollLeft : 0;
+    draw();
+    window.scrollTo(x, y);
+    const next = app.querySelector(".dbg-code");
+    if (next) {
+      next.scrollTop = codeTop;
+      next.scrollLeft = codeLeft;
+    }
+    if (after) after();
+  }
+
+  function revealIn(container, el) {
+    if (!container || !el) return;
+    const box = container.getBoundingClientRect();
+    const row = el.getBoundingClientRect();
+    if (row.top < box.top + 4) container.scrollTop -= box.top + 4 - row.top;
+    else if (row.bottom > box.bottom - 4) container.scrollTop += row.bottom - (box.bottom - 4);
+    if (row.left < box.left + 28) container.scrollLeft -= box.left + 28 - row.left;
+    else if (row.right > box.right - 8) container.scrollLeft += row.right - (box.right - 8);
+  }
+
+  function dbgState(lessonId) {
+    if (!ui.dbg || ui.dbg.lesson !== lessonId) ui.dbg = { lesson: lessonId, line: 0 };
+    return ui.dbg;
+  }
+
+  function renderFlowTabs(trace, debug, section) {
+    const title = stepTitle(2, section);
+    if (!trace && !debug) return "";
+    if (!trace || !debug) return title + trace + debug;
+    const tab = ui.flowTab === "code" ? "code" : "diagram";
+    const button = (id, label) => '<button type="button" class="flow-tab' + (tab === id ? " on" : "") + '" role="tab" aria-selected="' + (tab === id ? "true" : "false") + '" data-act="flow-tab" data-tab="' + id + '">' + label + "</button>";
+    return title + '<div class="flow-tabs"><div class="flow-tablist" role="tablist" aria-label="' + tt("flowTabs") + '">' +
+      button("diagram", tt("tabDiagram")) + button("code", tt("tabCode")) + "</div>" +
+      '<div class="flow-pane" role="tabpanel"' + (tab === "diagram" ? "" : " hidden") + ">" + trace + "</div>" +
+      '<div class="flow-pane" role="tabpanel"' + (tab === "code" ? "" : " hidden") + ">" + debug + "</div></div>";
+  }
+
+  function watchParts(key) {
+    const parts = [];
+    let i = 0;
+    while (i < key.length) {
+      if (key[i] === ".") {
+        i += 1;
+        continue;
+      }
+      if (key[i] === "[") {
+        const end = key.indexOf("]", i);
+        const inner = key.slice(i + 1, end).trim().replace(/^['"]|['"]$/g, "");
+        parts.push(/^\d+$/.test(inner) ? Number(inner) : inner);
+        i = end + 1;
+        continue;
+      }
+      const start = i;
+      let depth = 0;
+      while (i < key.length) {
+        const ch = key[i];
+        if (ch === "(") depth += 1;
+        else if (ch === ")") depth -= 1;
+        else if (depth === 0 && (ch === "." || ch === "[")) break;
+        i += 1;
+      }
+      parts.push(key.slice(start, i));
+    }
+    return parts.filter((part) => part !== "");
+  }
+
+  function watchNode() {
+    return { kids: new Map(), value: "", has: false, changed: false };
+  }
+
+  function watchTree(vars, focus) {
+    const root = watchNode();
+    Object.keys(vars).forEach((key) => {
+      const parts = watchParts(key);
+      let cur = root;
+      parts.forEach((part, index) => {
+        if (!cur.kids.has(part)) cur.kids.set(part, watchNode());
+        cur = cur.kids.get(part);
+        if (index === parts.length - 1) {
+          cur.value = String(vars[key]);
+          cur.has = true;
+          cur.changed = focus.has(key);
+        }
+      });
+    });
+    return root;
+  }
+
+  function watchRow(indent, html, changed, pairs, selected) {
+    return '<div class="' + (changed ? "chg" : "") + '" data-pairs="' + pairs.join(" ") + '">' +
+      "  ".repeat(indent) + html + (changed ? "<em>" + tt("codeChanged") + "</em>" : "") + "</div>";
+  }
+
+  function watchKey(name) {
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : '"' + name + '"';
+  }
+
+  function watchDense(entries) {
+    return entries.length > 0 && entries.every(([name], index) => name === index);
+  }
+
+  function renderWatch(vars, focus, selected, pairPrefix) {
+    const lines = [];
+    const open = [];
+    let pair = 0;
+    const pairId = (n) => (pairPrefix ? pairPrefix + "-" : "") + n;
+    const brace = (ch, closing, label) => {
+      const id = closing ? open.pop() : (pair += 1);
+      if (!closing) open.push(id);
+      const token = pairId(id);
+      const on = String(selected) === String(token) ? " on" : "";
+      const name = label ? ' data-name="' + esc(label) + '"' : "";
+      const note = closing && label ? '<em class="dbg-owner">' + esc(label) + "</em>" : "";
+      return '<span class="dbg-brace' + on + '" role="button" tabindex="0" data-act="dbg-brace" data-pair="' + token + '"' + name + ">" + ch + "</span>" + note;
+    };
+    const row = (indent, html, changed, pairs) => lines.push(watchRow(indent, html, changed, pairs || open.slice(), selected));
+    const openRow = (indent, before, ch, label) => {
+      row(indent, before + brace(ch, false, label), false);
+    };
+    const closeRow = (indent, ch, label) => {
+      const id = open[open.length - 1];
+      row(indent, brace(ch, true, label), false, open.concat(id));
+    };
+    const emitElement = (node, indent, label) => {
+      if (!node.kids.size) {
+        row(indent, esc(node.value), node.changed);
+        return;
+      }
+      const entries = [...node.kids.entries()].filter(([name]) => name !== "length");
+      if (watchDense(entries)) {
+        openRow(indent, "", "[", label);
+        entries.forEach(([, child], index) => emitElement(child, indent + 1, label + "[" + index + "]"));
+        closeRow(indent, "]", label);
+        return;
+      }
+      openRow(indent, "", "{", label);
+      emitFields(node, indent + 1);
+      closeRow(indent, "}", label);
+    };
+    const emitNamed = (label, node, indent) => {
+      const entries = [...node.kids.entries()];
+      const length = node.kids.get("length");
+      const rest = entries.filter(([name]) => name !== "length");
+      if (length && length.has && !length.kids.size) {
+        row(indent, esc(label + ".length: " + length.value), length.changed);
+      }
+      if (!rest.length) {
+        if (node.has) row(indent, esc(label + ": " + node.value), node.changed);
+        return;
+      }
+      if (watchDense(rest)) {
+        openRow(indent, esc(label + ": "), "[", label);
+        rest.forEach(([, child], index) => emitElement(child, indent + 1, label + "[" + index + "]"));
+        closeRow(indent, "]", label);
+        return;
+      }
+      const fields = rest.filter(([name]) => typeof name !== "number");
+      const indexes = rest.filter(([name]) => typeof name === "number");
+      if (fields.length) {
+        openRow(indent, esc(label + ": "), "{", label);
+        fields.forEach(([name, child]) => emitNamed(watchKey(String(name)), child, indent + 1));
+        closeRow(indent, "}", label);
+      }
+      indexes.forEach(([name, child]) => emitNamed(label + "[" + name + "]", child, indent));
+    };
+    const emitFields = (node, indent) => {
+      [...node.kids.entries()].filter(([name]) => name !== "length").forEach(([name, child]) => {
+        emitNamed(watchKey(String(name)), child, indent);
+      });
+    };
+    const tree = watchTree(vars, focus);
+    const entries = [...tree.kids.entries()].filter(([name]) => name !== "length");
+    const rootLabel = pairPrefix || "";
+    if (watchDense(entries)) {
+      const rootOpen = brace("[", false, rootLabel);
+      entries.forEach(([, child], index) => emitElement(child, 1, rootLabel + "[" + index + "]"));
+      const rootId = open[open.length - 1];
+      const rootClose = brace("]", true, rootLabel);
+      return '<div class="dbg-json">' + watchRow(0, rootOpen, false, [rootId], selected) + lines.join("") + watchRow(0, rootClose, false, [rootId], selected) + "</div>";
+    }
+    const rootOpen = brace("{", false, rootLabel);
+    entries.forEach(([name, child]) => emitNamed(watchKey(String(name)), child, 1));
+    const rootId = open[open.length - 1];
+    const rootClose = brace("}", true, rootLabel);
+    return '<div class="dbg-json">' + watchRow(0, rootOpen, false, [rootId], selected) + lines.join("") + watchRow(0, rootClose, false, [rootId], selected) + "</div>";
+  }
+
+  function plainWatch(value) {
+    const text = String(value);
+    if (text.length >= 2 && text[0] === '"' && text[text.length - 1] === '"') {
+      try { return JSON.parse(text); } catch (err) { return text; }
+    }
+    return text;
+  }
+
+  function renderVarCards(flat, focus, selected, done, raw) {
+    const roots = [];
+    Object.keys(flat).forEach((key) => {
+      const root = watchRoot(key);
+      if (roots.indexOf(root) === -1) roots.push(root);
+    });
+    const outcome = done ? roots.filter((root) => root === "returned" || root === "error") : [];
+    const cards = roots.filter((root) => outcome.indexOf(root) === -1).map((root) => {
+      const sub = {};
+      const subFocus = new Set();
+      Object.keys(flat).forEach((key) => {
+        if (watchRoot(key) !== root) return;
+        if (focus.has(key)) subFocus.add(key === root ? key : key.slice(root.length).replace(/^\./, ""));
+        if (key === root) sub[root] = flat[key];
+        else sub[key.slice(root.length).replace(/^\./, "")] = flat[key];
+      });
+      const changed = [...focus].some((key) => watchRoot(key) === root);
+      const body = Object.keys(sub).length === 1 && sub[root] != null
+        ? "<code>" + esc(plainWatch(sub[root])) + "</code>"
+        : renderWatch(sub, subFocus, selected, root);
+      return '<section class="dbg-varcard' + (changed ? " chg" : "") + '"><b>' + esc(root) + "</b>" + body + "</section>";
+    }).join("");
+    const banner = outcome.map((root) => {
+      const tone = root === "error" ? " bad" : "";
+      const label = root === "error" ? "codeStopped" : "codeResult";
+      const value = raw && raw[root] !== undefined ? raw[root] : flat[root];
+      const text = value !== null && typeof value === "object" ? JSON.stringify(value, null, 2) : plainWatch(value);
+      return '<div class="dbg-result' + tone + '"><b>' + tt(label) + "</b><code>" + esc(text) + "</code></div>";
+    }).join("");
+    return banner + cards;
+  }
+
+  function varsAt(run, lengths, line) {
+    const vars = {};
+    let start = 0;
+    run.forEach((row, index) => {
+      if (line >= start) Object.assign(vars, row.watch || {});
+      start += lengths[index];
+    });
+    return vars;
+  }
+
+  function lineAt(run, index) {
+    let cursor = 0;
+    for (let i = 0; i < run.length; i += 1) {
+      const lines = run[i].code.split("\n");
+      if (index < cursor + lines.length) return lines[index - cursor];
+      cursor += lines.length;
+    }
+    return "";
+  }
+
+  function pathKnown(vars, path) {
+    return Object.prototype.hasOwnProperty.call(vars, path) || Object.keys(vars).some((key) => key.startsWith(path + ".") || key.startsWith(path + "["));
+  }
+
+  function linkCode(line, vars, picked) {
+    let html = "";
+    let i = 0;
+    const skip = new Set(["const", "let", "var", "if", "else", "return", "await", "new", "throw", "true", "false", "null", "function", "async", "for", "while", "try", "catch"]);
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === '"' || ch === "'" || ch === "`") {
+        let j = i + 1;
+        while (j < line.length && line[j] !== ch) {
+          if (line[j] === "\\") j += 1;
+          j += 1;
+        }
+        html += esc(line.slice(i, Math.min(j + 1, line.length)));
+        i = j + 1;
+        continue;
+      }
+      if (ch === "/" && line[i + 1] === "/") {
+        html += esc(line.slice(i));
+        break;
+      }
+      if (/[A-Za-z_$]/.test(ch)) {
+        let j = i + 1;
+        while (j < line.length && /[A-Za-z0-9_$]/.test(line[j])) j += 1;
+        while (j < line.length) {
+          if (line[j] === "." && /[A-Za-z_$]/.test(line[j + 1] || "")) {
+            j += 2;
+            while (j < line.length && /[A-Za-z0-9_$]/.test(line[j])) j += 1;
+            continue;
+          }
+          if (line[j] === "[") {
+            const end = line.indexOf("]", j);
+            if (end < 0) break;
+            j = end + 1;
+            continue;
+          }
+          break;
+        }
+        let end = j;
+        let path = line.slice(i, end);
+        while (end > i && !pathKnown(vars, path)) {
+          const cut = Math.max(path.lastIndexOf("."), path.lastIndexOf("["));
+          if (cut <= 0) {
+            path = "";
+            break;
+          }
+          path = path.slice(0, cut);
+          end = i + path.length;
+        }
+        const head = path.split(/[.\[]/)[0];
+        if (path && !skip.has(head)) {
+          html += '<button type="button" class="dbg-ref' + (picked === path ? " on" : "") + '" data-act="dbg-peek" data-path="' + esc(path) + '">' + esc(path) + "</button>" + esc(line.slice(end, j));
+        } else html += esc(line.slice(i, j));
+        i = j;
+        continue;
+      }
+      html += esc(ch);
+      i += 1;
+    }
+    return html;
+  }
+
+  function peekValue(vars, path) {
+    const sub = {};
+    Object.keys(vars).forEach((key) => {
+      if (key === path || key.startsWith(path + ".") || key.startsWith(path + "[")) sub[key] = vars[key];
+    });
+    const keys = Object.keys(sub);
+    if (!keys.length) return null;
+    if (keys.length === 1 && keys[0] === path) return { exact: sub[path] };
+    return { html: renderWatch(sub, new Set(), "") };
+  }
+
+  function unquoteWatch(value) {
+    const text = String(value).trim();
+    if ((text[0] === '"' && text[text.length - 1] === '"') || (text[0] === "'" && text[text.length - 1] === "'")) return text.slice(1, -1);
+    return text;
+  }
+
+  function compareLine(line, path, exact) {
+    if (exact == null) return "";
+    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const literal = "(\"(?:\\\\.|[^\"])*\"|'(?:\\\\.|[^'])*'|\\d+(?:\\.\\d+)?)";
+    const ahead = line.match(new RegExp(escaped + "\\s*(===|!==|==|!=)\\s*" + literal));
+    const behind = line.match(new RegExp(literal + "\\s*(===|!==|==|!=)\\s*" + escaped));
+    const match = ahead || behind;
+    if (!match) return "";
+    const op = ahead ? match[1] : match[2];
+    const raw = ahead ? match[2] : match[1];
+    const same = unquoteWatch(exact) === unquoteWatch(raw);
+    const yes = op === "!==" || op === "!=" ? !same : same;
+    return '<span class="cmp">' + esc(op + " " + raw) + '</span><span class="' + (yes ? "yes" : "no") + '">' + tt(yes ? "codeYes" : "codeNo") + "</span>";
+  }
+
+  function showVarTip(anchor, path, vars, sourceLine) {
+    document.querySelectorAll(".dbg-tip").forEach((el) => el.remove());
+    document.querySelectorAll(".dbg-ref.on").forEach((el) => el.classList.remove("on"));
+    if (!path || !anchor) return;
+    anchor.classList.add("on");
+    const value = peekValue(vars || {}, path);
+    const tip = document.createElement("div");
+    tip.className = "dbg-tip";
+    if (!value) tip.innerHTML = "<b>" + esc(path) + "</b><span>" + tt("codeUnset") + "</span>";
+    else {
+      const body = value.html ? value.html : "<code>" + esc(value.exact) + "</code>";
+      const cmp = value.exact == null ? "" : compareLine(sourceLine || "", path, value.exact);
+      tip.innerHTML = "<b>" + esc(path) + "</b>" + body + cmp;
+    }
+    document.body.appendChild(tip);
+    const rect = anchor.getBoundingClientRect();
+    const box = tip.getBoundingClientRect();
+    let top = rect.bottom + 6;
+    if (top + box.height > window.innerHeight - 8) top = Math.max(8, rect.top - box.height - 6);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - box.width - 8));
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+  }
+
+  let liveDebug = null;
+
+  function instrument(source, readExpr) {
+    const lines = source.replace(/^\n/, "").replace(/\n$/, "").split("\n");
+    let paren = 0;
+    let bracket = 0;
+    const stack = [];
+    let boundary = true;
+    const out = [];
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      const closer = /^[})\]]+\s*;?$/.test(trimmed);
+      const inFn = stack.includes("f");
+      if (boundary && trimmed && !closer && !inFn) out.push("await __step(" + index + ", " + readExpr + ");");
+      out.push(line);
+      let quote = "";
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (quote) {
+          if (ch === "\\") { i += 1; continue; }
+          if (ch === quote) quote = "";
+          continue;
+        }
+        if (ch === "/" && line[i + 1] === "/") break;
+        if (ch === '"' || ch === "'" || ch === "`") { quote = ch; continue; }
+        if (ch === "(") paren += 1;
+        else if (ch === ")") paren = Math.max(0, paren - 1);
+        else if (ch === "[") bracket += 1;
+        else if (ch === "]") bracket = Math.max(0, bracket - 1);
+        else if (ch === "{") {
+          const before = line.slice(0, i);
+          const prev = before.trim().slice(-1);
+          const isFn = /function\b/.test(before) || /=>\s*$/.test(before.trim());
+          const obj = !isFn && (paren > 0 || bracket > 0 || ["=", ",", "(", "[", ":", "{"].includes(prev));
+          stack.push(isFn ? "f" : obj ? "o" : "b");
+        } else if (ch === "}") stack.pop();
+      }
+      const openObj = stack.includes("o");
+      const ended = trimmed.endsWith(";") && paren === 0 && bracket === 0 && !openObj;
+      const openedBlock = trimmed.endsWith("{") && stack[stack.length - 1] === "b" && paren === 0 && bracket === 0;
+      const closedBlock = /^}\s*;?$/.test(trimmed);
+      boundary = ended || openedBlock || closedBlock;
+    });
+    return out.join("\n");
+  }
+
+  function flattenScope(scope) {
+    const out = {};
+    const put = (value, prefix) => {
+      if (value === null || typeof value !== "object") {
+        if (!prefix) return;
+        out[prefix] = typeof value === "string" ? JSON.stringify(value) : String(value);
+        return;
+      }
+      if (Array.isArray(value)) {
+        if (!value.length && prefix) out[prefix] = "[]";
+        value.forEach((item, index) => put(item, prefix + "[" + index + "]"));
+        return;
+      }
+      const keys = Object.keys(value);
+      if (!keys.length && prefix) out[prefix] = "{}";
+      keys.forEach((key) => put(value[key], prefix ? prefix + "." + key : key));
+    };
+    Object.keys(scope || {}).forEach((key) => put(scope[key], key));
+    return out;
+  }
+
+  function changedFlat(prev, next) {
+    return Object.keys(next).filter((key) => !prev || prev[key] !== next[key]);
+  }
+
+  function launchLive(lessonId, model) {
+    if (liveDebug && liveDebug.lesson === lessonId && liveDebug.scene === model.scene) return;
+    const token = {};
+    liveDebug = { lesson: lessonId, scene: model.scene, token, frames: [], index: 0, done: false, release: null, view: null };
+    const names = [...model.source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)].map((match) => match[1]);
+    const usesScene = /\bscene\b/.test(model.source);
+    if (usesScene) names.push("scene");
+    const readExpr = "(() => { const __b = {}; " + names.map((name) => "try { __b." + name + " = " + name + "; } catch (__e) {}").join(" ") + " return __b; })()";
+    const body = (usesScene ? "const scene = " + JSON.stringify(model.scene) + ";\n" : "") + instrument(model.source, readExpr);
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const mockEntry = model.mocks[model.scene];
+    const queue = (Array.isArray(mockEntry) ? mockEntry : (mockEntry && mockEntry.queue) || []).map((item) => JSON.parse(JSON.stringify(item)));
+    const ran = [];
+    const client = { messages: { create: async () => {
+      if (!queue.length) throw new Error("no more mocked responses");
+      return queue.shift();
+    } } };
+    const tools = model.tools || {};
+    function run(block) {
+      const name = block && block.name;
+      ran.push(name);
+      return Object.prototype.hasOwnProperty.call(tools, name) ? tools[name] : undefined;
+    }
+    const pushFrame = (line, scope, focus, done) => {
+      if (!liveDebug || liveDebug.token !== token) return;
+      const vars = JSON.parse(JSON.stringify(scope || {}));
+      if (ran.length) vars.ranTools = ran.slice();
+      const flat = flattenScope(vars);
+      const prev = liveDebug.frames[liveDebug.frames.length - 1];
+      liveDebug.frames.push({ line: line, vars: vars, flat: flat, focus: focus || changedFlat(prev && prev.flat, flat), done: Boolean(done) });
+      liveDebug.index = liveDebug.frames.length - 1;
+      liveDebug.done = Boolean(done);
+      liveDebug.release = null;
+    };
+    function __step(line, bag) {
+      return new Promise((resolve) => {
+        if (!liveDebug || liveDebug.token !== token) { resolve(); return; }
+        const scope = bag || {};
+        if (ran.length) scope.ranTools = ran.slice();
+        const flat = flattenScope(JSON.parse(JSON.stringify(scope)));
+        const prev = liveDebug.frames[liveDebug.frames.length - 1];
+        liveDebug.frames.push({ line: line, vars: JSON.parse(JSON.stringify(scope)), flat: flat, focus: changedFlat(prev && prev.flat, flat) });
+        liveDebug.index = liveDebug.frames.length - 1;
+        liveDebug.release = resolve;
+        const view = liveDebug.view;
+        queueMicrotask(() => {
+          if (!liveDebug || liveDebug.token !== token) return;
+          render();
+          if (view) {
+            window.scrollTo(view.x, view.y);
+            const code = app.querySelector(".dbg-code");
+            if (code) {
+              code.scrollTop = view.top;
+              code.scrollLeft = view.left;
+            }
+          }
+          const current = app.querySelector(".dbg-line.dbg-now");
+          revealIn(app.querySelector(".dbg-code"), current);
+        });
+      });
+    }
+    let fn;
+    try {
+      fn = new AsyncFunction("client", "run", "__step", body);
+    } catch (error) {
+      pushFrame(0, { error: String(error.message || error) }, ["error"], true);
+      queueMicrotask(() => { if (liveDebug && liveDebug.token === token) render(); });
+      return;
+    }
+    fn(client, run, __step).then((value) => {
+      pushFrame(liveDebug && liveDebug.frames.length ? liveDebug.frames[liveDebug.frames.length - 1].line : 0, Object.assign({}, liveDebug.frames.length ? liveDebug.frames[liveDebug.frames.length - 1].vars : {}, { returned: value }), ["returned"], true);
+      if (liveDebug && liveDebug.token === token) render();
+    }, (error) => {
+      const last = liveDebug && liveDebug.frames[liveDebug.frames.length - 1];
+      pushFrame(last ? last.line : 0, Object.assign({}, last ? last.vars : {}, { error: String(error.message || error) }), ["error"], true);
+      if (liveDebug && liveDebug.token === token) render();
+    });
+  }
+
+  function currentDebug(lessonId) {
+    const raw = C.runs && C.runs[lessonId];
+    const dbg = dbgState(lessonId);
+    if (!raw) return null;
+    if (Array.isArray(raw)) return { legacy: true, steps: raw };
+    if (typeof raw.source === "string" && raw.mocks) {
+      const keys = Object.keys(raw.mocks);
+      if (!keys.includes(dbg.scene)) dbg.scene = keys[0];
+      return { live: true, source: raw.source, mocks: raw.mocks, tools: raw.tools || {}, scene: dbg.scene, scenes: keys };
+    }
+    const keys = Object.keys(raw.scenes || {});
+    if (!keys.length) return null;
+    if (!keys.includes(dbg.scene)) dbg.scene = keys[0];
+    return { legacy: false, lines: raw.lines, visits: raw.scenes[dbg.scene], scene: dbg.scene, scenes: keys };
+  }
+
+  function sceneMode(line, visits, cursor) {
+    let mode = "off";
+    visits.forEach((visit, index) => {
+      if (visit.at !== line) return;
+      if (index === cursor) mode = "now";
+      else if (index < cursor && mode !== "now") mode = "past";
+      else if (index > cursor && mode === "off") mode = "future";
+    });
+    return mode;
+  }
+
+  function watchRoot(key) {
+    return String(key).split(/[.[]/)[0];
+  }
+
+  function settledWatch(visits, index) {
+    const watch = {};
+    let focus = [];
+    const replace = new Set(["response", "calls"]);
+    for (let i = 0; i < index; i += 1) {
+      const row = visits[i].watch || {};
+      const keys = Object.keys(row);
+      if (!keys.length) continue;
+      const roots = new Set(keys.map(watchRoot));
+      roots.forEach((root) => {
+        if (!replace.has(root)) return;
+        Object.keys(watch).forEach((key) => {
+          if (watchRoot(key) === root) delete watch[key];
+        });
+      });
+      Object.assign(watch, row);
+      focus = visits[i].focus || [];
+    }
+    return { watch: watch, focus: focus };
+  }
+
+  function renderSceneDebug(lessonId, model) {
+    const dbg = dbgState(lessonId);
+    const visits = model.visits;
+    if (dbg.line > visits.length - 1) dbg.line = visits.length - 1;
+    if (dbg.line < 0) dbg.line = 0;
+    const settled = settledWatch(visits, dbg.line);
+    const known = settled.watch;
+    const names = { turn: "codeSceneTurn", cut: "codeSceneCut", text: "codeSceneText" };
+    const scenes = model.scenes.map((key) => '<button type="button" class="flow-tab' + (key === model.scene ? " on" : "") + '" data-act="dbg-scene" data-scene="' + key + '">' + tt(names[key] || key) + "</button>").join("");
+    const listing = model.lines.map((line, index) => {
+      const mode = sceneMode(index, visits, dbg.line);
+      return '<div class="dbg-line dbg-' + mode + '"><span>' + (index + 1) + "</span><code>" + linkCode(line, known, dbg.pick) + "</code></div>";
+    }).join("");
+    const rows = Object.keys(known).length ? renderWatch(known, new Set(settled.focus), dbg.brace) : "";
+    return '<figure class="debug"><figcaption>' + tt("codeDebug") + '</figcaption><p class="t-help">' + tt("codeDebugHelp") + "</p>" +
+      '<div class="dbg-scenes" role="tablist">' + scenes + '</div><p class="t-help">' + tt("codeSceneHelp") + "</p>" +
+      '<div class="dbg-run"><div class="dbg-code" role="region">' + listing + '</div><aside class="dbg-vars"><b>' + tt("codeVars") + "</b>" +
+      rows + "</aside></div>" +
+      '<div class="fc-controls"><button type="button" class="btn secondary" data-act="dbg-back"' + (dbg.line > 0 ? "" : " disabled") + ">" + tt("flowBack") + "</button>" +
+      '<button type="button" class="btn" data-act="dbg-next"' + (dbg.line < visits.length - 1 ? "" : " disabled") + ">" + tt("codeNext") + "</button>" +
+      '<button type="button" class="btn secondary" data-act="dbg-reset">' + tt("flowReset") + '</button><span class="small">' +
+      tt("flowStep", { n: dbg.line + 1, total: visits.length }) + "</span></div></figure>";
+  }
+
+  function renderLiveDebug(lessonId, model) {
+    const dbg = dbgState(lessonId);
+    if (!liveDebug || liveDebug.lesson !== lessonId || liveDebug.scene !== model.scene) launchLive(lessonId, model);
+    const session = liveDebug;
+    const lines = model.source.replace(/^\n/, "").replace(/\n$/, "").split("\n");
+    const frames = session && session.lesson === lessonId ? session.frames : [];
+    const index = frames.length ? Math.min(session.index, frames.length - 1) : 0;
+    const frame = frames[index];
+    const names = { turn: "codeSceneTurn", cut: "codeSceneCut", text: "codeSceneText" };
+    const sceneLabel = (key) => {
+      const entry = model.mocks[key];
+      if (entry && entry.label) return tt(entry.label);
+      return tt(names[key] || key);
+    };
+    const scenes = model.scenes.map((key) => '<button type="button" class="flow-tab' + (key === model.scene ? " on" : "") + '" data-act="dbg-scene" data-scene="' + key + '">' + sceneLabel(key) + "</button>").join("");
+    const sceneBar = model.scenes.length > 1
+      ? '<div class="dbg-scenes" role="tablist">' + scenes + '</div><p class="t-help">' + tt("codeSceneHelp") + "</p>"
+      : "";
+    const listing = lines.map((line, lineNo) => {
+      let mode = "future";
+      if (frame) {
+        let seen = false;
+        frames.forEach((item, itemIndex) => {
+          if (item.line !== lineNo) return;
+          if (itemIndex === index) mode = "now";
+          else if (itemIndex < index) seen = true;
+        });
+        if (mode !== "now") mode = seen || lineNo < frame.line ? "past" : "future";
+      }
+      return '<div class="dbg-line dbg-' + mode + '"><span>' + (lineNo + 1) + "</span><code>" + linkCode(line, frame ? frame.flat : {}, dbg.pick) + "</code></div>";
+    }).join("");
+    const rows = frame && Object.keys(frame.flat).length ? renderVarCards(frame.flat, new Set(frame.focus || []), dbg.brace, frame.done, frame.vars) : "";
+    const last = frames.length ? frames[frames.length - 1] : null;
+    const finished = Boolean(last && last.done && index === frames.length - 1);
+    return '<figure class="debug"><figcaption>' + tt("codeDebug") + '</figcaption><p class="t-help">' + tt("codeDebugHelp") + "</p>" +
+      sceneBar +
+      '<div class="dbg-run"><div class="dbg-code" role="region">' + listing + '</div><aside class="dbg-vars"><b>' + tt("codeVars") + "</b>" +
+      rows + "</aside></div>" +
+      '<div class="fc-controls"><button type="button" class="btn secondary" data-act="dbg-back"' + (index > 0 ? "" : " disabled") + ">" + tt("flowBack") + "</button>" +
+      '<button type="button" class="btn" data-act="dbg-next"' + (finished ? " disabled" : "") + ">" + tt("codeNext") + "</button>" +
+      '<button type="button" class="btn secondary" data-act="dbg-reset">' + tt("flowReset") + '</button><span class="small">' +
+      tt("flowStep", { n: frames.length ? index + 1 : 0, total: frames.length }) + "</span></div></figure>";
+  }
+
+  function renderDebug(lessonId) {
+    const model = currentDebug(lessonId);
+    if (!model) return "";
+    if (model.live) return renderLiveDebug(lessonId, model);
+    if (!model.legacy) return renderSceneDebug(lessonId, model);
+    const run = model.steps;
+    if (!run.length) return "";
+    const dbg = dbgState(lessonId);
+    const lengths = run.map((row) => row.code.split("\n").length);
+    const total = lengths.reduce((sum, n) => sum + n, 0);
+    if (dbg.line < 0) dbg.line = 0;
+    if (dbg.line > total - 1) dbg.line = total - 1;
+    const known = varsAt(run, lengths, dbg.line);
+    let cursor = 0;
+    const listing = run.map((row) => row.code.split("\n").map((line) => {
+      const mode = cursor < dbg.line ? "past" : cursor === dbg.line ? "now" : "future";
+      cursor += 1;
+      return '<div class="dbg-line dbg-' + mode + '"><span>' + cursor + "</span><code>" + linkCode(line, known, dbg.pick) + "</code></div>";
+    }).join("")).join("");
+    const vars = {};
+    const focus = new Set();
+    let end = -1;
+    run.forEach((row, index) => {
+      end += lengths[index];
+      if (dbg.line < end) return;
+      Object.assign(vars, row.watch || {});
+      if (dbg.line === end) (row.focus || []).forEach((key) => focus.add(key));
+    });
+    const rows = Object.keys(vars).length ? renderWatch(vars, focus, dbg.brace) : "";
+    return '<figure class="debug"><figcaption>' + tt("codeDebug") + '</figcaption><p class="t-help">' + tt("codeDebugHelp") + "</p>" +
+      '<div class="dbg-run"><div class="dbg-code" role="region">' + listing + '</div><aside class="dbg-vars"><b>' + tt("codeVars") + "</b>" +
+      rows + "</aside></div>" +
+      '<div class="fc-controls"><button type="button" class="btn secondary" data-act="dbg-back"' + (dbg.line > 0 ? "" : " disabled") + ">" + tt("flowBack") + "</button>" +
+      '<button type="button" class="btn" data-act="dbg-next"' + (dbg.line < total - 1 ? "" : " disabled") + ">" + tt("codeNext") + "</button>" +
+      '<button type="button" class="btn secondary" data-act="dbg-reset">' + tt("flowReset") + '</button><span class="small">' +
+      tt("codeLine", { n: dbg.line + 1, total: total }) + "</span></div></figure>";
+  }
+
   function renderBlocks(blocks) {
     return blocks.map((block) => {
       if (block.type === "p") return "<p>" + esc(block.text) + "</p>";
@@ -1295,10 +1977,9 @@
     const introCount = item.blocks.findIndex((block) => block.type !== "p");
     const split = introCount === -1 ? item.blocks.length : introCount;
     const sections = sectionMinutes(item.minutes);
-    const diagram = C.diagrams && C.diagrams[item.id]
-      ? stepTitle(2, sections[1]) + renderDiagram(C.diagrams[item.id])
-      : "";
     const trace = C.traces && C.traces[item.id] ? renderTrace(C.traces[item.id], item.id) : "";
+    const debug = renderDebug(item.id);
+    const flow = renderFlowTabs(trace, debug, sections[1]);
     const steps = '<ol class="lesson-steps">' + sections.map((section) => "<li>" + raw(section.short) + " <b>" + tt("minutes", { n: section.minutes }) + "</b></li>").join("") + "</ol>";
     const pace = studyPace();
     const breakdown = sections.map((section) => raw(section.short) + " " + tt("minutes", { n: section.minutes })).join(" · ");
@@ -1311,8 +1992,7 @@
         renderBlocks(item.blocks.slice(0, split)) +
         exampleBox(item) +
         termsBox(item) +
-        diagram +
-        trace +
+        flow +
         stepTitle(3, sections[2]) +
         renderBlocks(item.blocks.slice(split)) +
         '</div>' + renderBridge(item, sections[3]) + renderLessonCheck(item, sections[4]) +
@@ -1945,6 +2625,15 @@
       if (avatar) avatar.setAttribute("aria-expanded", "false");
     }
     const node = event.target.closest("[data-act]");
+    if (ui.dbg && ui.dbg.pick && !event.target.closest(".dbg-tip") && (!node || node.dataset.act !== "dbg-peek")) {
+      ui.dbg.pick = "";
+      document.querySelectorAll(".dbg-tip").forEach((el) => el.remove());
+      document.querySelectorAll(".dbg-ref.on").forEach((el) => el.classList.remove("on"));
+    }
+    if (ui.dbg && ui.dbg.brace && (!node || node.dataset.act !== "dbg-brace")) {
+      ui.dbg.brace = "";
+      document.querySelectorAll(".dbg-brace.on").forEach((el) => el.classList.remove("on"));
+    }
     if (!node) return;
     const act = node.dataset.act;
     if (act === "account") {
@@ -2192,6 +2881,15 @@
       if (window.confirm(t("confirmSubmit"))) finishLive();
       return;
     }
+    if (act === "flow-tab") {
+      ui.flowTab = node.dataset.tab === "code" ? "code" : "diagram";
+      const tabs = node.closest(".flow-tabs");
+      const top = tabs ? tabs.getBoundingClientRect().top : 0;
+      render();
+      const next = app.querySelector(".flow-tabs");
+      if (next) window.scrollBy(0, next.getBoundingClientRect().top - top);
+      return;
+    }
     if (act === "flow-next" || act === "flow-back" || act === "flow-branch" || act === "flow-reset") {
       const id = parseRoute().arg;
       const trace = C.traces && C.traces[id];
@@ -2221,10 +2919,82 @@
         const steps = flow.branch === "bad" ? parts.bad : parts.rest;
         if (flow.seenBranch < steps.length) flow.seenBranch += 1;
       }
-      render();
-      const narrow = window.matchMedia("(max-width: 860px)").matches;
-      const current = narrow ? app.querySelector(".fc-console") : app.querySelector(".fc-svg .n-now");
-      if (current) current.scrollIntoView({ block: narrow ? "nearest" : "center", behavior: "smooth" });
+      holdView(render);
+      return;
+    }
+    if (act === "dbg-scene") {
+      const id = parseRoute().arg;
+      const dbg = dbgState(id);
+      dbg.scene = node.dataset.scene || "";
+      dbg.line = 0;
+      dbg.pick = "";
+      dbg.brace = "";
+      liveDebug = null;
+      holdView(render);
+      return;
+    }
+    if (act === "dbg-peek") {
+      const id = parseRoute().arg;
+      const model = currentDebug(id);
+      const dbg = dbgState(id);
+      const path = node.dataset.path || "";
+      dbg.pick = dbg.pick === path ? "" : path;
+      let vars = {};
+      let source = "";
+      if (model && model.legacy) {
+        const lengths = model.steps.map((row) => row.code.split("\n").length);
+        vars = varsAt(model.steps, lengths, dbg.line);
+        source = lineAt(model.steps, dbg.line);
+      } else if (model && model.live) {
+        const frame = liveDebug && liveDebug.frames[liveDebug.index];
+        vars = frame ? frame.flat : {};
+        source = frame ? model.source.split("\n")[frame.line] || "" : "";
+      } else if (model) {
+        const visit = model.visits[dbg.line];
+        vars = settledWatch(model.visits, dbg.line).watch;
+        source = model.lines[visit.at] || "";
+      }
+      showVarTip(node, dbg.pick, vars, source);
+      return;
+    }
+    if (act === "dbg-brace") {
+      const id = parseRoute().arg;
+      const dbg = dbgState(id);
+      dbg.brace = dbg.brace === node.dataset.pair ? "" : node.dataset.pair;
+      holdView(render);
+      return;
+    }
+    if (act === "dbg-next" || act === "dbg-back" || act === "dbg-reset") {
+      const id = parseRoute().arg;
+      const model = currentDebug(id);
+      if (!model) return;
+      const dbg = dbgState(id);
+      if (model.live) {
+        const code = app.querySelector(".dbg-code");
+        if (liveDebug) liveDebug.view = { x: window.scrollX, y: window.scrollY, top: code ? code.scrollTop : 0, left: code ? code.scrollLeft : 0 };
+        if (act === "dbg-reset") {
+          liveDebug = null;
+          holdView(render);
+        } else if (act === "dbg-back") {
+          if (liveDebug && liveDebug.index > 0) liveDebug.index -= 1;
+          holdView(render);
+        } else if (liveDebug && liveDebug.index < liveDebug.frames.length - 1) {
+          liveDebug.index += 1;
+          holdView(render);
+        } else if (liveDebug && liveDebug.release) {
+          const go = liveDebug.release;
+          liveDebug.release = null;
+          go();
+        }
+        return;
+      }
+      const total = model.legacy
+        ? model.steps.reduce((sum, row) => sum + row.code.split("\n").length, 0)
+        : model.visits.length;
+      if (act === "dbg-reset") dbg.line = 0;
+      else if (act === "dbg-back") dbg.line = Math.max(0, dbg.line - 1);
+      else dbg.line = Math.min(total - 1, dbg.line + 1);
+      holdView(render, () => revealIn(app.querySelector(".dbg-code"), app.querySelector(".dbg-line.dbg-now")));
       return;
     }
     if (act === "reset") {
