@@ -138,7 +138,7 @@ CCARF.samples = [
 
 CCARF.distinctions = [
   ["Workflow", "Agente", "Si los pasos se conocen de antemano, un workflow fijo es más predecible y barato. Un agente se usa cuando el camino depende de lo que devuelven las tools."],
-  ["end_turn", "Tope de iteraciones", "El éxito del bucle es stop_reason end_turn. El tope es un cortacircuitos, no la definición de tarea terminada."],
+  ["end_turn", "Tope de iteraciones", "El éxito del bucle es stop_reason: end_turn. El tope es un cortacircuitos, no la definición de tarea terminada."],
   ["tool_use", "max_tokens", "tool_use: ejecutar cada tool y devolver un tool_result por id. max_tokens: salida truncada, no es éxito."],
   ["Prompt", "Gate o hook", "El prompt expresa preferencias. Una regla que debe cumplirse siempre (identidad antes de pagar, umbrales) se impone en código, antes de la tool."],
   ["PostToolUse", "PreToolUse", "PostToolUse transforma el resultado antes de que el modelo lo procese (normalizar fechas, estados). PreToolUse intercepta la llamada saliente para bloquearla (umbrales, prerrequisitos)."],

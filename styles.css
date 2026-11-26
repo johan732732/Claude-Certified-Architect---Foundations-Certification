@@ -254,7 +254,21 @@ h3 { font-size: 22px; margin: 0 0 8px; }
   border: 0;
 }
 .btn.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
-.btn.good { background: var(--good); }
+.btn.good { background: var(--good); color: #fff; }
+.btn .check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--good);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
 .btn.bad { background: var(--bad); }
 .btn.warn { background: var(--warn); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }

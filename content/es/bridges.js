@@ -7,9 +7,9 @@ CCARF.bridges = {
     title: "El cliente pregunta por el reembolso y el programa no adivina el final",
     beats: [
       "El cliente pregunta si ya salió el reembolso del pedido 10091.",
-      "Claude se detiene con stop_reason tool_use y pide lookup_order. El programa ejecuta esa herramienta.",
+      "Claude se detiene con stop_reason: tool_use y pide lookup_order. El programa ejecuta esa herramienta.",
       "Guarda el mensaje del asistente tal como volvió y agrega un tool_result con el mismo id: emitido el 3 de marzo, 48.20 USD.",
-      "Vuelve a llamar. Esta vez stop_reason es end_turn y el texto cita esa fecha y ese monto.",
+      "Vuelve a llamar. Esta vez stop_reason: end_turn y el texto cita esa fecha y ese monto.",
     ],
     now: "El bucle termina porque el campo lo dice. Una frase de despedida en el texto no cierra nada, y un tope de vueltas solo corta: no completa la tarea.",
     base: "Este bucle es el piso. Las lecciones siguientes le ponen piezas encima: quién reparte el trabajo, qué puede pedir cada herramienta y qué reglas el código no deja saltar.",
@@ -24,7 +24,7 @@ CCARF.bridges = {
     ],
     now: "Un hueco se re-delega. Si una zona del tema no aparece, se revisa la partición del coordinador, no al subagente que cumplió el recorte que le dieron.",
     links: [
-      { id: "1.1", text: "Cada subagente, por dentro, es ese bucle: trabaja hasta que stop_reason es end_turn y le devuelve la nota al coordinador." },
+      { id: "1.1", text: "Cada subagente, por dentro, es ese bucle: trabaja hasta que stop_reason: end_turn y le devuelve la nota al coordinador." },
     ],
   },
   "1.3": {
@@ -37,7 +37,7 @@ CCARF.bridges = {
     ],
     now: "Un subagente solo ve el prompt de esa llamada. Los hallazgos van completos, y cada afirmación va con su fuente.",
     links: [
-      { id: "1.1", text: "Esas notas son tool_result de un bucle que ya cerró con end_turn. Sin ese resultado en el historial, no hay nada que copiar." },
+      { id: "1.1", text: "Esas notas son tool_result de un bucle que ya cerró con stop_reason: end_turn. Sin ese resultado en el historial, no hay nada que copiar." },
       { id: "1.2", text: "El coordinador sigue siendo el único que junta. Task es la herramienta con la que llama, y su allowedTools tiene que incluirla." },
     ],
   },

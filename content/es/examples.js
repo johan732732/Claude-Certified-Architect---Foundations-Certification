@@ -5,7 +5,7 @@ window.CCARF = window.CCARF || {};
 CCARF.examples = {
   "1.1": {
     title: "Preguntar por un pedido",
-    text: "Un agente de soporte recibe: “¿Cuándo llega mi pedido 10091?”. En la primera vuelta stop_reason es tool_use y Claude pide lookup_order. El programa devuelve el estado y lo agrega al historial. En la segunda vuelta stop_reason es end_turn y el texto dice “llega el jueves”. Si el programa buscara la palabra “llega” en el texto, podría cortar en la primera vuelta, cuando todavía no tenía el dato.",
+    text: "Un agente de soporte recibe: “¿Cuándo llega mi pedido 10091?”. En la primera vuelta stop_reason: tool_use y Claude pide lookup_order. El programa devuelve el estado y lo agrega al historial. En la segunda vuelta stop_reason: end_turn y el texto dice “llega el jueves”. Si el programa buscara la palabra “llega” en el texto, podría cortar en la primera vuelta, cuando todavía no tenía el dato.",
     connect: "Es la base de todo el curso. Cada lección siguiente reparte, limita o revisa este mismo bucle.",
   },
   "1.2": {

@@ -140,7 +140,7 @@ CCARF.ui.es = {
   "codeDebug": "El código, línea a línea",
   "codeDebugHelp": "El mismo caso, escrito en JavaScript. El panel conserva las variables en orden: lo nuevo queda abierto y el resto se pliega. En un bucle, la vuelta se marca en el while. Puedes tocar una variable para abrirla, y un nombre en el código para ver su valor. Un comentario marca lo que se envía a Claude.",
   "codeSceneHelp": "Mismo código. Elige qué cambia en este caso.",
-  "codeSceneTurn": "Termina con end_turn",
+  "codeSceneTurn": "Termina con stop_reason: end_turn",
   "codeSceneCut": "Llega max_tokens",
   "codeSceneText": "El texto dice que ya terminó",
   "codeResult": "La ejecución terminó",

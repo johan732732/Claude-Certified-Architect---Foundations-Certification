@@ -101,7 +101,7 @@ CCARF.en = Object.assign(CCARF.en || {}, {
   "Agente": "Agent",
   "Si los pasos se conocen de antemano, un workflow fijo es más predecible y barato. Un agente se usa cuando el camino depende de lo que devuelven las tools.": "If the steps are known in advance, a fixed workflow is more predictable and cheaper. An agent is used when the path depends on what the tools return.",
   "Tope de iteraciones": "Iteration cap",
-  "El éxito del bucle es stop_reason end_turn. El tope es un cortacircuitos, no la definición de tarea terminada.": "Loop success is stop_reason end_turn. The cap is a circuit breaker, not the definition of a finished task.",
+  "El éxito del bucle es stop_reason: end_turn. El tope es un cortacircuitos, no la definición de tarea terminada.": "Loop success is stop_reason: end_turn. The cap is a circuit breaker, not the definition of a finished task.",
   "tool_use: ejecutar cada tool y devolver un tool_result por id. max_tokens: salida truncada, no es éxito.": "tool_use: run each tool and return a tool_result per id. max_tokens: truncated output, not success.",
   "Gate o hook": "Gate or hook",
   "El prompt expresa preferencias. Una regla que debe cumplirse siempre (identidad antes de pagar, umbrales) se impone en código, antes de la tool.": "The prompt expresses preferences. A rule that must always hold (identity before paying, thresholds) is enforced in code, before the tool.",

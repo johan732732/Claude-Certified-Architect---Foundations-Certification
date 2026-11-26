@@ -70,11 +70,11 @@
   function loadState() {
     try {
       return Object.assign(
-        { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {} },
+        { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {}, answers: {} },
         JSON.parse(localStorage.getItem(STORE) || "{}")
       );
     } catch (error) {
-      return { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {} };
+      return { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {}, answers: {} };
     }
   }
 
@@ -122,7 +122,7 @@
   }
 
   function emptyProgress() {
-    return { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {} };
+    return { lessons: {}, cards: {}, checklist: {}, history: [], misses: {}, notes: {}, answers: {} };
   }
 
   function snapshot() {
@@ -133,6 +133,7 @@
       history: state.history || [],
       misses: state.misses || {},
       notes: state.notes || {},
+      answers: state.answers || {},
     };
   }
 
@@ -184,6 +185,7 @@
     state.history = next.history || [];
     state.misses = next.misses || {};
     state.notes = next.notes || {};
+    state.answers = next.answers || {};
     localStorage.setItem(STORE, JSON.stringify(state));
   }
 
@@ -201,6 +203,7 @@
     }
     if (kind === "lessons") return String(local) <= String(remote) ? local : remote;
     if (kind === "notes") return String(local).length >= String(remote).length ? local : remote;
+    if (kind === "answers") return String(local.at || "") >= String(remote.at || "") ? local : remote;
     return local;
   }
 
@@ -250,6 +253,7 @@
       checklist: pickMap("checklist", prior.checklist, local.checklist, remote.checklist),
       misses: pickMap("misses", prior.misses, local.misses, remote.misses),
       notes: pickMap("notes", prior.notes, local.notes, remote.notes),
+      answers: pickMap("answers", prior.answers, local.answers, remote.answers),
       history: mergeHistory(local.history, remote.history),
     };
   }
@@ -500,6 +504,30 @@
     return copy;
   }
 
+  // Unanswered questions get a new choice order on each page load.
+  // The stored pick is still the original index, so grading does not move.
+  const choiceOrders = {};
+
+  function choiceOrder(id, locked) {
+    const q = question(id);
+    if (!q) return [];
+    if (choiceOrders[id]) return choiceOrders[id];
+    const canonical = q.choices.map((_, index) => index);
+    if (locked) return canonical;
+    choiceOrders[id] = shuffle(canonical);
+    return choiceOrders[id];
+  }
+
+  function renderChoices(q, picked, shown, act) {
+    return choiceOrder(q.id, shown).map((index) => {
+      let cls = "choice";
+      if (picked.includes(index)) cls += " selected";
+      if (shown && q.answer.includes(index)) cls += " right";
+      if (shown && picked.includes(index) && !q.answer.includes(index)) cls += " wrong";
+      return '<button class="' + cls + '" data-act="' + act + '" data-q="' + q.id + '" data-index="' + index + '">' + esc(q.choices[index]) + "</button>";
+    }).join("");
+  }
+
   function todayKey(date) {
     const value = date || new Date();
     const month = String(value.getMonth() + 1).padStart(2, "0");
@@ -656,6 +684,12 @@
   function recordAnswer(questionId, selected, confidence) {
     const q = question(questionId);
     if (!q || !selected || !selected.length) return;
+    if (!state.answers) state.answers = {};
+    state.answers[questionId] = {
+      picked: selected.slice(),
+      confidence: confidence || "",
+      at: new Date().toISOString(),
+    };
     const known = state.misses[questionId];
     const active = known && !known.resolved ? known : null;
     if (grade(q, selected) && confidence !== "adivino") {
@@ -2189,7 +2223,9 @@
     const next = C.lessons[index + 1];
     const d = domain(item.domain);
     const checks = C.questions.filter((q) => q.lesson === item.id).length;
-    const done = state.lessons[item.id] ? tt("studied") : tt("markStudied");
+    const studied = Boolean(state.lessons[item.id]);
+    const markLabel = studied ? '<span class="check" aria-hidden="true">✓</span>' + tt("studied") : tt("markStudied");
+    const markClass = studied ? "btn good" : "btn secondary";
     const introCount = item.blocks.findIndex((block) => block.type !== "p");
     const split = introCount === -1 ? item.blocks.length : introCount;
     const sections = sectionMinutes(item.minutes);
@@ -2216,7 +2252,7 @@
         '</b><span>' + tt("thisLesson") + '</span></div><div><b>' + formatStudy(pace.done) +
         '</b><span>' + tt("courseSoFar") + '</span></div><div><b>' + formatStudy(pace.left) +
         '</b><span>' + tt("stillLeft") + '</span></div></div><p class="small muted">' + tt("lessonSum", { breakdown: breakdown, total: formatStudy(pace.total) }) + "</p></section>" +
-        '<div class="row" style="margin-top:18px"><button class="btn" data-act="mark" data-id="' + item.id + '">' + done + '</button><button class="btn secondary" data-act="check-lesson" data-id="' + item.id + '">' + tt("repeatSet", { n: checks }) + '</button></div><div class="spread" style="margin-top:22px"><span>' +
+        '<div class="row" style="margin-top:18px"><button class="' + markClass + '" data-act="mark" data-id="' + item.id + '" aria-pressed="' + (studied ? "true" : "false") + '">' + markLabel + '</button><button class="btn secondary" data-act="check-lesson" data-id="' + item.id + '">' + tt("repeatSet", { n: checks }) + '</button></div><div class="spread" style="margin-top:22px"><span>' +
         (prev ? '<a href="#/leccion/' + prev.id + '">← ' + esc(prev.id) + "</a>" : "") +
         "</span><span>" + (next ? '<a href="#/leccion/' + next.id + '">' + esc(next.id) + " →</a>" : "") + "</span></div>"
     );
@@ -2263,7 +2299,21 @@
 
   function lessonCheckState(lessonId) {
     if (!ui.check || ui.check.lesson !== lessonId) {
-      ui.check = { lesson: lessonId, picked: {}, shown: {}, confidence: {}, notes: {} };
+      const picked = {};
+      const shown = {};
+      const confidence = {};
+      const notes = {};
+      const saved = state.answers || {};
+      C.questions.filter((q) => q.lesson === lessonId).forEach((q) => {
+        const row = saved[q.id];
+        if (row && Array.isArray(row.picked) && row.picked.length) {
+          picked[q.id] = row.picked.slice();
+          shown[q.id] = true;
+          confidence[q.id] = row.confidence || "";
+        }
+        if (state.notes && state.notes[q.id]) notes[q.id] = state.notes[q.id];
+      });
+      ui.check = { lesson: lessonId, picked: picked, shown: shown, confidence: confidence, notes: notes };
     }
     ui.check.confidence = ui.check.confidence || {};
     ui.check.notes = ui.check.notes || {};
@@ -2279,13 +2329,7 @@
     const cards = questions.map((q, n) => {
       const picked = check.picked[q.id] || [];
       const shown = Boolean(check.shown[q.id]);
-      const choices = q.choices.map((text, index) => {
-        let cls = "choice";
-        if (picked.includes(index)) cls += " selected";
-        if (shown && q.answer.includes(index)) cls += " right";
-        if (shown && picked.includes(index) && !q.answer.includes(index)) cls += " wrong";
-        return '<button class="' + cls + '" data-act="lc-pick" data-q="' + q.id + '" data-index="' + index + '">' + esc(text) + "</button>";
-      }).join("");
+      const choices = renderChoices(q, picked, shown, "lc-pick");
       const level = check.confidence[q.id] || "";
       const wrote = (check.notes[q.id] || "").trim();
       const guessedRight = shown && grade(q, picked) && level === "adivino";
@@ -2435,13 +2479,7 @@
     const locked = live.mode === "study" && live.revealed;
     const level = live.confidence[q.id] || "";
     const ready = picked.length > 0 && Boolean(level);
-    const choices = q.choices.map((text, index) => {
-      let cls = "choice";
-      if (picked.includes(index)) cls += " selected";
-      if (locked && q.answer.includes(index)) cls += " right";
-      if (locked && picked.includes(index) && !q.answer.includes(index)) cls += " wrong";
-      return '<button class="' + cls + '" data-act="pick" data-index="' + index + '">' + esc(text) + "</button>";
-    }).join("");
+    const choices = renderChoices(q, picked, locked, "pick");
     const multi = q.type === "multi";
     const wrote = (live.notes[q.id] || "").trim();
     const guessedRight = locked && grade(q, picked) && level === "adivino";
@@ -2992,6 +3030,14 @@
       return;
     }
     if (act === "lc-reset") {
+      const lessonId = ui.check && ui.check.lesson;
+      if (lessonId) {
+        C.questions.filter((q) => q.lesson === lessonId).forEach((q) => {
+          delete choiceOrders[q.id];
+          if (state.answers) delete state.answers[q.id];
+        });
+        saveState();
+      }
       ui.check = null;
       refreshLessonCheck();
       return;

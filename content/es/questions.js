@@ -9,9 +9,9 @@ CCARF.questions = [
     stem: "A support agent loop calls the Messages API and runs tools. Which signal should end the loop as a successful completion?",
     choices: [
       "The iteration counter reached the configured safety cap",
-      "stop_reason is end_turn",
+      "stop_reason: end_turn",
       "The assistant text contains the word done",
-      "stop_reason is max_tokens",
+      "stop_reason: max_tokens",
     ],
     answer: [1],
     explain: "end_turn es la salida normal: el modelo terminó. El tope de iteraciones es un cortacircuitos, y max_tokens significa que la salida quedó truncada.",
@@ -19,7 +19,7 @@ CCARF.questions = [
   },
   {
     id: "d1-02", domain: "d1", lesson: "1.1", type: "single",
-    stem: "The model returns stop_reason tool_use with three tool_use blocks. What must the host send before the next model call?",
+    stem: "The model returns stop_reason: tool_use with three tool_use blocks. What must the host send before the next model call?",
     choices: [
       "Only the first tool_result, to keep the context small",
       "A new system prompt that describes the tool outputs",
@@ -32,7 +32,7 @@ CCARF.questions = [
   },
   {
     id: "d1-03", domain: "d1", lesson: "1.1", type: "single",
-    stem: "stop_reason is max_tokens and the last content block looks like the start of a tool call. What should the host do?",
+    stem: "stop_reason: max_tokens and the last content block looks like the start of a tool call. What should the host do?",
     choices: [
       "Execute the partial tool call with empty arguments",
       "Treat the turn as successfully finished",
@@ -1096,7 +1096,7 @@ CCARF.questions = [
     stem: "Which TWO of the following are anti-patterns for deciding that an agent loop has finished?",
     choices: [
       "Parsing the assistant's natural language for a word like done",
-      "Stopping when stop_reason is end_turn",
+      "Stopping when stop_reason: end_turn",
       "Using an arbitrary iteration cap as the primary stopping rule",
       "Appending one tool_result for every tool_use id",
     ],

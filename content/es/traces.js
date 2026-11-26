@@ -93,7 +93,7 @@ CCARF.traces = {
     }
   ]
 }`),
-      stop("Se devuelve ese texto. El bucle cierra porque stop_reason es end_turn, no porque la frase suene a despedida."),
+      stop("Se devuelve ese texto. El bucle cierra porque stop_reason: end_turn, no porque la frase suene a despedida."),
     ]),
     bad: lane([
       back("La salida se cortó a mitad del argumento. El monto no llegó entero.", `{
