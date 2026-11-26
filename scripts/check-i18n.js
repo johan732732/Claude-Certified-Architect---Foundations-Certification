@@ -37,6 +37,7 @@ const contentFiles = [
   "content/es/bridges.js",
   "content/es/examples.js",
   "content/es/traces.js",
+  "content/es/sequences.js",
   "content/es/runs.js",
 ];
 const englishFiles = [
@@ -45,6 +46,7 @@ const englishFiles = [
   "content/en/meta.js",
   "content/en/narrative.js",
   "content/en/traces.js",
+  "content/en/sequences.js",
 ];
 
 const context = sandbox();

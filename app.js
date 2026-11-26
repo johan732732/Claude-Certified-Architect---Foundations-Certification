@@ -1317,15 +1317,45 @@
     return ui.dbg;
   }
 
-  function renderFlowTabs(trace, debug, section) {
+  function renderSequence(seq) {
+    const actors = seq.actors || [];
+    const index = {};
+    actors.forEach((actor, i) => { index[actor.id] = i + 1; });
+    const cols = actors.length || 1;
+    const arrow = (step) => {
+      const from = index[step.from];
+      const to = index[step.to];
+      if (!from || !to || from === to) return "";
+      const start = Math.min(from, to);
+      const span = Math.abs(to - from) + 1;
+      const dir = from < to ? "right" : "left";
+      const back = step.back ? " back" : "";
+      return '<div class="seq-arrow ' + dir + back + '" style="grid-column:' + start + " / span " + span + ";--n:" + span + '"><span>' + esc(step.text) + "</span></div>";
+    };
+    const rows = (seq.steps || []).map((step) => {
+      if (!step.par) return arrow(step);
+      const inner = (step.steps || []).map(arrow).join("");
+      return '<div class="seq-par" style="grid-column:1 / -1"><b>' + esc(step.par) + '</b><div class="seq-board" style="--cols:' + cols + '">' + inner + "</div></div>";
+    }).join("");
+    const heads = actors.map((actor) => '<div class="seq-head" style="grid-column:' + index[actor.id] + '">' + esc(actor.name) + "</div>").join("");
+    const lives = actors.map((actor) => "<i></i>").join("");
+    return '<figure class="seq"><figcaption>' + esc(seq.title) + '</figcaption><p class="t-help">' + tt("sequenceHelp") + '</p><div class="seq-scroll"><div class="seq-board" style="--cols:' + cols + '"><div class="seq-lives" aria-hidden="true">' + lives + "</div>" + heads + rows + "</div></div></figure>";
+  }
+
+  function renderFlowTabs(trace, debug, section, lessonId) {
     const title = stepTitle(2, section);
-    if (!trace && !debug) return "";
-    if (!trace || !debug) return title + trace + debug;
-    const tab = ui.flowTab === "code" ? "code" : "diagram";
+    const sequence = lessonId && C.sequences && C.sequences[lessonId] ? renderSequence(C.sequences[lessonId]) : "";
+    if (!trace && !debug && !sequence) return "";
+    if (!trace && !debug) return title + sequence;
+    const hasSeq = Boolean(sequence);
+    const tab = ui.flowTab === "code" ? "code" : ui.flowTab === "sequence" && hasSeq ? "sequence" : "diagram";
     const button = (id, label) => '<button type="button" class="flow-tab' + (tab === id ? " on" : "") + '" role="tab" aria-selected="' + (tab === id ? "true" : "false") + '" data-act="flow-tab" data-tab="' + id + '">' + label + "</button>";
+    const seqTab = hasSeq ? button("sequence", tt("tabSequence")) : "";
+    const seqPane = hasSeq ? '<div class="flow-pane" role="tabpanel"' + (tab === "sequence" ? "" : " hidden") + ">" + sequence + "</div>" : "";
     return title + '<div class="flow-tabs"><div class="flow-tablist" role="tablist" aria-label="' + tt("flowTabs") + '">' +
-      button("diagram", tt("tabDiagram")) + button("code", tt("tabCode")) + "</div>" +
+      button("diagram", tt("tabDiagram")) + seqTab + button("code", tt("tabCode")) + "</div>" +
       '<div class="flow-pane" role="tabpanel"' + (tab === "diagram" ? "" : " hidden") + ">" + trace + "</div>" +
+      seqPane +
       '<div class="flow-pane" role="tabpanel"' + (tab === "code" ? "" : " hidden") + ">" + debug + "</div></div>";
   }
 
@@ -1877,12 +1907,18 @@
     const examples = {};
     model.scenes.forEach((key) => { examples[key] = mockQueue(model.mocks[key]); });
     const usesScene = /\bscene\b/.test(model.source);
+    const separateCase = model.scenes.some((key) => {
+      const entry = model.mocks[key];
+      return Boolean(entry && entry.source);
+    });
     const lines = [
       "// CCAR-F " + lessonId,
       "// Nothing here calls the network. messages.create returns the next mocked response.",
       "// Run it: node ccar-f-" + lessonId + ".js",
       "// Step through it: node --inspect-brk ccar-f-" + lessonId + ".js",
-      "// Change `example` to try another case: " + model.scenes.join(", "),
+      separateCase
+        ? "// This file is the case " + JSON.stringify(model.scene) + ". Switch the case in the page and download again for another one."
+        : "// Change `example` to try another case: " + model.scenes.join(", "),
       "",
       "const example = " + JSON.stringify(model.scene) + ";",
       "const examples = " + JSON.stringify(examples, null, 2) + ";",
@@ -1927,9 +1963,8 @@
     if (liveDebug && liveDebug.lesson === lessonId && liveDebug.scene === model.scene) return;
     const token = {};
     liveDebug = { lesson: lessonId, scene: model.scene, token, frames: [], index: 0, done: false, release: null, view: null, sent: [] };
-    const names = [...model.source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)].map((match) => match[1]);
+    const names = [...model.source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)].map((match) => match[1]).filter((name) => name !== "scene");
     const usesScene = /\bscene\b/.test(model.source);
-    if (usesScene) names.push("scene");
     const readExpr = "(() => { const __b = {}; " + names.map((name) => "try { __b." + name + " = " + name + "; } catch (__e) {}").join(" ") + " return __b; })()";
     const body = (usesScene ? "const scene = " + JSON.stringify(model.scene) + ";\n" : "") + instrument(model.source, readExpr);
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -2012,7 +2047,9 @@
     if (typeof raw.source === "string" && raw.mocks) {
       const keys = Object.keys(raw.mocks);
       if (!keys.includes(dbg.scene)) dbg.scene = keys[0];
-      return { live: true, source: raw.source, mocks: raw.mocks, tools: raw.tools || {}, scene: dbg.scene, scenes: keys };
+      const entry = raw.mocks[dbg.scene];
+      const source = (entry && entry.source) || raw.source;
+      return { live: true, source: source, mocks: raw.mocks, tools: raw.tools || {}, scene: dbg.scene, scenes: keys };
     }
     const keys = Object.keys(raw.scenes || {});
     if (!keys.length) return null;
@@ -2231,7 +2268,7 @@
     const sections = sectionMinutes(item.minutes);
     const trace = C.traces && C.traces[item.id] ? renderTrace(C.traces[item.id], item.id) : "";
     const debug = renderDebug(item.id);
-    const flow = renderFlowTabs(trace, debug, sections[1]);
+    const flow = renderFlowTabs(trace, debug, sections[1], item.id);
     const steps = '<ol class="lesson-steps">' + sections.map((section) => "<li>" + raw(section.short) + " <b>" + tt("minutes", { n: section.minutes }) + "</b></li>").join("") + "</ol>";
     const pace = studyPace();
     const breakdown = sections.map((section) => raw(section.short) + " " + tt("minutes", { n: section.minutes })).join(" · ");
@@ -3144,7 +3181,8 @@
       return;
     }
     if (act === "flow-tab") {
-      ui.flowTab = node.dataset.tab === "code" ? "code" : "diagram";
+      const tab = node.dataset.tab;
+      ui.flowTab = tab === "code" || tab === "sequence" ? tab : "diagram";
       const tabs = node.closest(".flow-tabs");
       const top = tabs ? tabs.getBoundingClientRect().top : 0;
       render();

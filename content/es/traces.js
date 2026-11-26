@@ -24,7 +24,8 @@ CCARF.traces = {
     goodWhen: "tool_use y, después, end_turn",
     badWhen: "max_tokens, o el texto dice que ya terminó",
     good: lane([
-      send("Sale la pregunta del cliente y la lista de tools. Todavía no hay respuesta final.", `POST /v1/messages
+      send("El cliente pregunta si ya salió el reembolso del 10091. El programa arma la primera llamada con esa pregunta y las tools.", `user: "Has the refund for order 10091 gone out?"
+POST /v1/messages
 {
   "max_tokens": 1024,
   "tools": [
@@ -122,7 +123,8 @@ CCARF.traces = {
     goodWhen: "Falta una región y se vuelve a encargar",
     badWhen: "El recorte dejó industrias afuera",
     good: lane([
-      send("El coordinador parte el tema y manda tres encargos. Ningún subagente ve el de los otros.", `Task x3, same response
+      send("El usuario pide el resumen del reembolso 10091: la orden, la política y un borrador. El programa llama a Claude y el coordinador parte eso en tres encargos. Ningún subagente ve el de los otros.", `user: "Summarize refund 10091: the order, the policy, and a draft reply."
+Task x3, same response
   researcher_papers: "remote work 2024-2026, academic"
   researcher_press: "remote work 2024-2026, press"
   researcher_firms: "remote work 2024-2026, company reports"`),
@@ -138,7 +140,8 @@ tool_result firms: 5 notes
       stop("Se entrega el informe. El ajuste salió de quien ve el mapa completo."),
     ]),
     bad: lane([
-      send("El recorte deja industrias afuera antes de la primera llamada.", `split("creative industries") =
+      send("El usuario pide un resumen de las industrias creativas. El recorte deja música, escritura y cine afuera antes de la primera llamada.", `user: "Summarize creative industries."
+split("creative industries") =
   [digital art, graphic design, photography]
 # music, writing, film: nobody`),
       back("Los tres cumplen exactamente lo que les tocó.", `art: 8 sources
@@ -153,7 +156,8 @@ photography: 6 sources`),
     goodWhen: "Las dos notas van escritas, con su fuente",
     badWhen: "Nombra el hallazgo y no lo pega",
     good: lane([
-      send("Estado y dirección no se necesitan entre sí, así que las dos Task salen en la misma respuesta.", `content:
+      send("El usuario pregunta dónde está el 10091 y cuál es la dirección de envío. No se necesitan entre sí, así que las dos Task salen en la misma respuesta.", `user: "Where is order 10091, and what is the shipping address?"
+content:
   - type: tool_use
     id: task_01
     name: Task
@@ -198,7 +202,7 @@ sources: []`),
     goodWhen: "Sin id verificado, la tool se rechaza",
     badWhen: "La regla solo está en el prompt y la devolución sale",
     good: lane([
-      send("El mismo mensaje trae dos temas. El flujo los parte antes de investigar.", `user: "Refund order 10091 and change the shipping address."
+      send("El usuario pide el reembolso del 10091 y un cambio de dirección. El programa parte eso en dos ítems antes de investigar.", `user: "Refund order 10091 and change the shipping address."
 items:
   - refund
   - address_change`),
@@ -235,7 +239,8 @@ session.verified_customer_id: null`),
     goodWhen: "El hook bloquea los 800 antes de ejecutar",
     badWhen: "El umbral está en el prompt y los 620 salen",
     good: lane([
-      send("El modelo arma la llamada. Todavía no se ha ejecutado nada.", `tool_use:
+      send("El usuario pide un reembolso de 800 USD en el 10091. El modelo arma la llamada y todavía no se ha ejecutado nada.", `user: "Refund 800 USD on order 10091."
+tool_use:
   id: toolu_15
   name: process_refund
   input: { order_id: "10091", amount: 800 }`),
@@ -243,7 +248,7 @@ session.verified_customer_id: null`),
   if amount > 500: block, hand to a person
 -> blocked
 tool did not run`),
-      back("En otra tool, dos servidores devuelven la misma fecha en dialectos distintos.", `server A: { timestamp: 1710000000, status: 200 }
+      back("En otra tool, dos servidores devuelven la misma fecha en dialectos distintos.", `server A: { timestamp: 1773014400, status: 200 }
 server B: { date: "2026-03-09T00:00:00Z", code: "OK" }`),
       act("PostToolUse reescribe el resultado antes de que el modelo lo lea.", `normalized:
   date: "2026-03-09"
@@ -264,7 +269,8 @@ tool_use process_refund { amount: 620 }`),
     goodWhen: "Un pase por archivo y otro para lo que cruza",
     badWhen: "Una cadena fija sobre un legado que nadie miró",
     good: lane([
-      send("Llega un trabajo de código. Todavía no se abre el repo.", `task: not started
+      send("Piden revisar el cambio: un archivo por vez y después lo que cruza entre ellos. Todavía no se abre el repo.", `user: "Review this change. Look at each file, then at what crosses between them."
+task: not started
 repo: not opened`),
       send("La revisión es predecible: se sabe qué mirar. Cada archivo va en su pase.", `pass 1, one file at a time:
   review(src/invoice.ts) -> local bugs
@@ -294,7 +300,8 @@ repo: no service layer`),
     goodWhen: "Se reanuda y se nombra el archivo que cambió",
     badWhen: "Se reanuda sin decir que el módulo cambió",
     good: lane([
-      send("El análisis del lunes sigue describiendo el código. Se reanuda esa conversación y se nombra el archivo que cambió.", `claude --resume billing-refactor
+      send("Piden reanudar billing-refactor y avisan que src/invoice.ts cambió desde el lunes.", `user: "Resume billing-refactor. src/invoice.ts changed since Monday."
+claude --resume billing-refactor
 user: "src/invoice.ts changed since Monday. Reread that file and continue the plan."`),
       back("Claude relee ese archivo, no el repositorio entero.", `{
   "stop_reason": "tool_use",
@@ -324,7 +331,8 @@ proposal: "keep parsing the string"`),
     goodWhen: "Cada tool dice el formato y cuándo no usarla",
     badWhen: "Las dos dicen casi lo mismo",
     good: lane([
-      send("En la llamada van nombre, descripción y schema. No va el código de la función.", `{
+      send("El usuario pregunta la política de reembolso del 10091. En la llamada van el nombre, la descripción y el schema. No va el código de la función.", `user: "What is the refund policy for order 10091?"
+{
   "tools": [
     {
       "name": "extract_web_results",
@@ -359,7 +367,8 @@ tool_use: analyze_content`),
     goodWhen: "Con categoría e isRetryable",
     badWhen: "Como una lista vacía",
     good: lane([
-      send("Se pide el estado del pago del 10091.", `tool_use get_payment { order_id: "10091" }`),
+      send("El usuario pregunta el estado del pago del 10091.", `user: "What is the payment status for order 10091?"
+tool_use get_payment { order_id: "10091" }`),
       back("El servicio no contesta. La tool no esconde eso en una lista vacía.", `tool_result:
   isError: true
   errorCategory: transient
@@ -386,7 +395,8 @@ isError: false`),
     goodWhen: "Obliga a extract_metadata",
     badWhen: "Queda en auto y responde solo con texto",
     good: lane([
-      send("El primer turno de la extracción no puede ser texto. tool_choice obliga a extract_metadata.", `POST /v1/messages
+      send("El usuario pide leer la factura 10091 y tiparla antes de enriquecer al proveedor. Esta llamada no puede ser solo texto.", `user: "Read invoice 10091. Type it before you enrich the vendor."
+POST /v1/messages
 {
   "tools": [
     { "name": "extract_metadata" },
@@ -434,7 +444,8 @@ load_document(url):
     goodWhen: "El archivo guarda ${GITHUB_TOKEN} y Jira es de comunidad",
     badWhen: "El secreto queda en git",
     good: lane([
-      send("El repo declara el servidor. El token no va en el archivo.", `.mcp.json
+      send("Preguntan qué hay abierto en Jira por el reembolso duplicado del 10091. El repo declara el servidor y el token no va en el archivo.", `user: "What is open in Jira for the duplicate refund on 10091?"
+.mcp.json
 github:
   token: "\${GITHUB_TOKEN}"
 # committed
@@ -465,7 +476,8 @@ agent chooses Grep, even though the issue is in Jira`),
     goodWhen: "El ancla es única y Edit la usa",
     badWhen: "return null está en seis funciones",
     good: lane([
-      send("Lo que se busca es un texto, no un nombre de archivo.", `Grep "processRefund"
+      send("Piden encontrar processRefund y cambiar el return del reembolso que falta. Se busca un texto, no un nombre de archivo.", `user: "Find processRefund and change the return that means the refund is missing."
+Grep "processRefund"
 include: "**/*.ts"`),
       back("Aparecen tres archivos. Se abre el que define la función y se siguen sus imports.", `src/billing/refund.ts
 src/api/routes.ts
@@ -491,7 +503,8 @@ old: "return null;"
     goodWhen: "En el CLAUDE.md del repo",
     badWhen: "En el archivo personal",
     good: lane([
-      send("Claude Code abre el repo y junta tres archivos, cada uno para un público distinto.", `load ~/.claude/CLAUDE.md
+      send("Alguien abre el repo y pide seguir las reglas del equipo. Claude Code junta tres archivos, cada uno para un público distinto.", `user: "Open this repo and follow the team's rules."
+load ~/.claude/CLAUDE.md
   "Answer me in Spanish."
 load ./CLAUDE.md
   "Use the internal logger. Do not use console.log."
@@ -523,7 +536,7 @@ agent writes console.log`),
     goodWhen: "Solo cuando se pide el comando o el skill",
     badWhen: "Los cuarenta pasos viven en CLAUDE.md",
     good: lane([
-      send("La persona dispara el atajo. El archivo está en el repo, así que el equipo lo tiene al clonar.", `/review-pr 10091
+      send("La persona escribe /review-pr 10091. El archivo está en el repo, así que el equipo lo tiene al clonar.", `user: "/review-pr 10091"
 file: .claude/commands/review-pr.md`),
       act("El skill de cobertura es ruidoso. context fork lo corre aparte y allowed-tools le cierra el resto.", `SKILL.md
 context: fork
@@ -548,7 +561,8 @@ user: "Fix the comma in the title."
     goodWhen: "El test carga la regla, esté en la carpeta que esté",
     badWhen: "El CLAUDE.md de /tests no ve ese archivo",
     good: lane([
-      send("Claude va a editar un test que no vive en la carpeta /tests.", `Edit src/components/Button.test.tsx`),
+      send("Piden editar el test del botón de checkout. Ese archivo no vive en la carpeta /tests.", `user: "Edit the checkout button test."
+Edit src/components/Button.test.tsx`),
       act("Mira los globs antes de meter reglas al contexto.", `.claude/rules/testing.md
 paths:
   - "**/*.test.tsx"
@@ -574,7 +588,8 @@ proposal: add a snapshot test`),
     goodWhen: "Plan mode y, ya cerrado, editar",
     badWhen: "Se edita la migración sin mapa",
     good: lane([
-      send("El cambio toca más de 45 archivos y hay dos formas de integrar. Entra plan mode, no el editor.", `plan mode
+      send("Piden migrar las fechas de billing. Hay dos formas y el diseño sigue abierto, así que entra plan mode y no el editor.", `user: "Migrate the billing dates. There are two ways to do it and the design is still open."
+plan mode
 Explore subagent: "who shares the BillingDate type?"`),
       back("El subagente devuelve el mapa. El chat no se llena de listas de archivos.", `summary:
   services sharing the type: [billing, invoices, refunds]
@@ -599,7 +614,8 @@ invoices/date.ts imports BillingDate
     goodWhen: "Tres pares de entrada y salida, y el fallo del test",
     badWhen: "Se repite la advertencia y no hay una salida",
     good: lane([
-      send("La prosa daba un formato distinto cada vez. Se pegan tres pares, incluido el campo vacío.", `user: |
+      send("Piden formatear una línea del log de reembolsos. La prosa daba un formato distinto cada vez, así que se pegan tres pares, incluido el campo vacío.", `user: "Format this refund log line."
+user: |
   Format this log line.
   in: "2026-03-03 INFO refund 10091"
   out: "2026-03-03 | INFO | refund 10091"
@@ -626,7 +642,8 @@ run 2: "2026-03-03 INFO refund"`),
     goodWhen: "claude -p y una instancia nueva",
     badWhen: "Sin -p, y la misma sesión se revisa",
     good: lane([
-      send("Nadie va a contestar una pregunta. -p hace que Claude termine, y el schema fija la forma del JSON.", `claude -p --output-format json --json-schema schema.json
+      send("Piden revisar el pull request y no hay nadie para contestar. -p hace que Claude termine, y el schema fija la forma del JSON.", `user: "Review this pull request. Nobody is here to answer questions."
+claude -p --output-format json --json-schema schema.json
 prompt: "Review this diff. Report only new findings."
 schema finding:
   file, line, severity, summary`),
@@ -657,7 +674,8 @@ comments: the same 8 findings again`),
     goodWhen: "Se marca solo si el comentario contradice el código",
     badWhen: "Pide ser conservador y marca el estilo",
     good: lane([
-      send("El criterio se puede contestar sí o no, y cada gravedad trae un ejemplo.", `criterion: "Flag a comment only when the behavior it describes contradicts the code."
+      send("Piden revisar src/billing/refund.ts: el comentario dice que nunca devuelve null. El criterio se puede contestar sí o no.", `user: "Review src/billing/refund.ts. The comment says it never returns null."
+criterion: "Flag a comment only when the behavior it describes contradicts the code."
 high: comment says "never returns null" and the function returns null
 omit: style, local team patterns`),
       back("Este comentario cae en la gravedad alta. El espacio de más no se reporta.", `file: src/billing/refund.ts
@@ -687,7 +705,8 @@ trailing space in a comment -> omitted`),
     goodWhen: "Tres bordes y un patrón que está bien",
     badWhen: "Diez veces el mismo bug evidente",
     good: lane([
-      send("Se pegan tres casos en los que una persona dudaría, con el formato de salida completo, y uno que se parece y está bien.", `examples:
+      send("Piden revisar src/billing/refund.ts y ver los casos difíciles, no el obvio repetido diez veces.", `user: "Review src/billing/refund.ts. Show me the hard cases, not the obvious one ten times."
+examples:
   - ambiguous null check -> flag, severity high, because the comment denies it
   - missing source on a claim -> flag, ask for the url
   - acceptable: early return used across this repo -> do not flag
@@ -714,7 +733,8 @@ early-return pattern: not flagged`),
     goodWhen: "Es nullable y vuelve null",
     badWhen: "Es requerido y el modelo escribe 000000",
     good: lane([
-      send("El molde deja vacío lo que puede no estar, y tool_choice obliga al paso que tiene que ir primero.", `{
+      send("Piden extraer la factura 10091. La página no trae número de impuesto, así que el molde deja ese campo vacío y tool_choice obliga a extract_invoice.", `user: "Extract invoice 10091. The page has no tax number."
+{
   "tool_choice": { "type": "tool", "name": "extract_invoice" },
   "tools": [
     {
@@ -769,7 +789,8 @@ early-return pattern: not flagged`),
     goodWhen: "La fecha sí está y el retry corrige el formato",
     badWhen: "El impuesto no está y se reintenta igual",
     good: lane([
-      send("Primera extracción. La fecha viene en palabras.", `document: "9 March 2026, total 48.20"
+      send("Piden leer la factura y devolver la fecha y el impuesto. La fecha viene en palabras.", `user: "Read this invoice and give me the date and the tax."
+document: "9 March 2026, total 48.20"
 extraction: { date: "9 March 2026", total: 48.20 }`),
       back("El validador rechaza la forma. El sentido todavía no se ha mirado.", `Pydantic:
   date must be YYYY-MM-DD
@@ -799,7 +820,8 @@ attempt 3: same document, same prompt`),
     goodWhen: "Nadie: lote de noche y solo se reenvían las 12",
     badWhen: "El merge espera y se manda por lote",
     good: lane([
-      send("Nadie espera el informe antes de la mañana. Se prueban 20 y después se manda el lote. Cada request lleva el nombre del archivo.", `POST /v1/messages/batches
+      send("Piden extraer 2.000 facturas de noche. Nadie espera el resultado hasta la mañana, así que se prueban 20 y después se manda el lote.", `user: "Extract 2,000 invoices overnight. Nobody is waiting until morning."
+POST /v1/messages/batches
 {
   "requests": [
     {
@@ -848,7 +870,8 @@ tool turns inside one batch request: not run`),
     goodWhen: "Otra instancia, un archivo por vez",
     badWhen: "La misma sesión, con los 14 archivos",
     good: lane([
-      send("La instancia que escribió el código no es la que lo revisa. El primer pase es un archivo por vez, y el hallazgo entra en un schema.", `new conversation, no author notes
+      send("Piden revisar el parche del reembolso en una instancia que no lo escribió, un archivo por vez.", `user: "Review the refund patch. You did not write it. One file at a time."
+new conversation, no author notes
 review src/billing/refund.ts only
 schema: { file, line, summary, confidence }`),
       back("Cada archivo devuelve sus hallazgos locales, con una confianza.", `{ file: "refund.ts", line: 40, summary: "amount unchecked", confidence: 0.4 }`),
@@ -878,7 +901,8 @@ missed: amount number vs string`),
     goodWhen: "case_facts lleva 48.20 USD",
     badWhen: "El resumen dice unos cincuenta dólares",
     good: lane([
-      send("La llamada vuelve a mandar la conversación. Los hechos del caso van aparte del resumen, con los números tal cual.", `POST /v1/messages
+      send("A los 30 turnos el cliente vuelve a preguntar cuánto fue el reembolso. Los hechos van aparte del resumen, con los números tal cual.", `user: "After 30 turns, the customer asks again: how much was the refund?"
+POST /v1/messages
 {
   "messages": [
     {
@@ -926,7 +950,7 @@ missed: amount number vs string`),
     goodWhen: "Se escala en ese momento",
     badWhen: "Se sigue investigando para llegar con todo resuelto",
     good: lane([
-      send("El mensaje pide una persona. No se abre una investigación antes.", `user: "Transfer me to a person."
+      send("El cliente dice que lo pasen con una persona. No se abre una investigación antes.", `user: "Transfer me to a person."
 order: 10091`),
       act("Se escala en ese momento. El pase lleva lo que ya se sabe, no diez minutos más de búsqueda.", `handoff:
   reason: "customer asked for a person"
@@ -959,7 +983,8 @@ reply: "We can match 40 USD this once."`),
     goodWhen: "Tipo de fallo, consulta, parciales y una alternativa",
     badWhen: "Una lista vacía, o se cancela todo",
     good: lane([
-      send("El subagente pide los papers. El servidor no contesta.", `search query: "remote work 2024"
+      send("Piden el informe de trabajo remoto en 2024, con los papers. El subagente busca y el servidor no contesta.", `user: "Write the report on remote work in 2024. Include the academic papers."
+search query: "remote work 2024"
 -> timeout
 errorCategory: transient`),
       act("Reintenta una vez la misma consulta. La segunda también falla. No devuelve una lista vacía.", `retry 1: timeout
@@ -988,7 +1013,8 @@ report: "No research exists on this topic."`),
     goodWhen: "Scratchpad y manifest",
     badWhen: "Todo sigue en la conversación",
     good: lane([
-      act("El hallazgo concreto se escribe fuera del chat, para poder releerlo.", `scratchpad.write
+      act("Preguntan dónde se guarda el estado de billing. Lo preguntaron hace una hora y el chat está enorme, así que el hallazgo se escribe fuera.", `user: "Where is billing state stored? I asked an hour ago and the chat is huge."
+scratchpad.write
   store: src/billing/store.ts
   refund function: processRefund`),
       send("La pregunta larga se la lleva un subagente. El principal se queda la coordinación.", `Task:
@@ -1018,7 +1044,8 @@ inject state into the new prompts
     goodWhen: "El proveedor B sigue en revisión",
     badWhen: "Se apaga la revisión por el número global",
     good: lane([
-      act("Se mide por segmento, no solo el total. El umbral de cada campo sale de documentos ya etiquetados.", `overall accuracy: 0.97
+      act("Preguntan si ya se puede dejar de revisar al proveedor B, porque el total da 97 %. La respuesta es medirlo por segmento, no por ese número.", `user: "Can we stop reviewing vendor B? Overall accuracy is 97%."
+overall accuracy: 0.97
 vendor B invoices: 0.70
 threshold[tax_id] = compare(model confidence, human label)`),
       send("De lo que el modelo marcó con confianza alta se saca una muestra, al azar dentro de cada tipo.", `sample:
@@ -1046,7 +1073,8 @@ sample of high-confidence rows: none`),
     goodWhen: "12 y 9, con fecha y origen",
     badWhen: "Queda el 12 y se inventan 30 días",
     good: lane([
-      back("Cada subagente devuelve la afirmación con el lugar y la fecha. No solo la frase.", `task_01:
+      back("Preguntan el precio por caja y la ventana de devolución. Cada subagente devuelve la afirmación con el lugar y la fecha, no solo la frase.", `user: "What is the price per box, and what is the return window?"
+task_01:
   claim: "12 USD per box"
   source: "Catalog 2026, table 2"
   collected: "2026-03-01"
